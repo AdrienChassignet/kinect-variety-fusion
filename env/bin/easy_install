@@ -1,4 +1,4 @@
-#!/home/adrien/Documents/Logitech/KinectVarietyFusion/env/bin/python3
+#!/home/adrien/Documents/Logitech/kinect-variety-fusion/env/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys
