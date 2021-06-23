@@ -91,6 +91,19 @@ def image_points_selection(rgb_cams, depth_cams):
     d1 = []
     q2 = []
     d2 = []
+
+    # WARNING: This is not robust when there is too much images and it is not possible to find proper ref points
+    while [] in [pts[i][centroid_idx] for i in range(len(rgb_cams))]:
+        centroid_idx += 1
+    idx = 0
+    while [] in [pts[i][q1_idx] for i in range(len(rgb_cams))]:
+        idx += 1
+        q1_idx = np.where(arr_pts[0] == low_hull1[idx])[0][0]
+    idx = 0
+    while [] in [pts[i][q2_idx] for i in range(len(rgb_cams))]:
+        idx += 1
+        q2_idx = np.where(arr_pts[0] == up_hull1[idx])[0][0]
+
     for i in range(len(rgb_cams)):
         q0.append(pts[i][centroid_idx])
         d0.append(d_pts[i][centroid_idx])
@@ -173,11 +186,12 @@ def feature_matching_2d(rgb_cams, visualize=False):
                     pass
         print("Feature matching between cam0 and cam", cam_idx, " in ", time()-start_time_matching, " seconds.")
 
-    for i in range(2, len(rgb_cams)):
-        no_match_idx = [idx for idx,x in enumerate(pts[i]) if x == []][::-1]
-        for idx in no_match_idx:
-            for j in range(len(rgb_cams)):
-                del pts[j][idx]
+    # # Remove the feature points that are not common to all the views
+    # for i in range(2, len(rgb_cams)):
+    #     no_match_idx = [idx for idx,x in enumerate(pts[i]) if x == []][::-1]
+    #     for idx in no_match_idx:
+    #         for j in range(len(rgb_cams)):
+    #             del pts[j][idx]
 
     if visualize:
         fig = plt.figure("Features matching")
@@ -219,11 +233,12 @@ def depth_value_extraction(dmap_list, image_list, pts_list):
     for idx in range(len(pts_list[0])): # Check all matched points
         means = np.zeros(len(pts_list))
         for i in range(len(pts_list)): # Check depth of current point in each view
-            (u,v) = pts_list[i][idx]
-            neighborhood = np.array([dmap_list[i][u-1][v-1], dmap_list[i][u-1][v], dmap_list[i][u-1][v+1],
-                                dmap_list[i][u][v-1], dmap_list[i][u][v], dmap_list[i][u][v+1],
-                                dmap_list[i][u+1][v-1], dmap_list[i][u+1][v], dmap_list[i][u+1][v+1]])
-            means[i] = neighborhood[np.nonzero(neighborhood)].mean()
+            if pts_list[i][idx] != []:
+                (u,v) = pts_list[i][idx]
+                neighborhood = np.array([dmap_list[i][u-1][v-1], dmap_list[i][u-1][v], dmap_list[i][u-1][v+1],
+                                    dmap_list[i][u][v-1], dmap_list[i][u][v], dmap_list[i][u][v+1],
+                                    dmap_list[i][u+1][v-1], dmap_list[i][u+1][v], dmap_list[i][u+1][v+1]])
+                means[i] = neighborhood[np.nonzero(neighborhood)].mean()
         if np.sum(means) > 0: # If there is valid depth information in all views we keep the point
             for i in range(len(pts_list)):
                 pts_depth[i].append(means[i])
@@ -240,7 +255,7 @@ def main():
 
     rgb_cams = []
     depth_cams = []
-    N = 7
+    N = 4
     for i in range(0, N):
         rgb_cam, depth_cam = load_rgbd(str(i))
         rgb_cams.append(rgb_cam)
@@ -257,6 +272,7 @@ def main():
     q2v = q2[1]
 
     coeffs = []
+    resids = []
     correct_points = []
     time_start = time()
     for i in range(len(arr_pts[0])):
@@ -267,23 +283,23 @@ def main():
 
         Kis = []
         for j in range(len(arr_pts)):
-            Kis.append(build_constraints_matrix(q0[j], q1[j], q2[j], d0[j], d1[j], d2[j], arr_pts[j][i], d_pts[j][i]))
+            if arr_pts[j][i] != []:
+                Kis.append(build_constraints_matrix(q0[j], q1[j], q2[j], d0[j], d1[j], d2[j], arr_pts[j][i], d_pts[j][i]))
         Kis = np.concatenate(Kis) 
         _, D, V = np.linalg.svd(Kis)
-        if D[-1] < 10:
+        if D[-1] < .5:
             print("Residuals D: ", D)
             correct_points.append(i)
+        resids.append(D[-1])
         coeffs.append(V[-1]/V[-1,-1])
         # print("Time: ", time()-time_start, "Structure coefficients: ", coeffs[-1])
     print("Time computing parameters: ", time()-time_start)
     print(correct_points)
 
-    time_start = time()
     for i in correct_points:
         # Estimate the position of the current processed point in the new virtual view
         qv = (vv, uv) = arr_pts[1][i]
         expected = np.array([uv, vv, d1[1]/d0[1], d2[1]/d0[1], d_pts[1][i]/d0[1]])
-        print("\nExpected u and v in the new view: ", expected)
         
         # Start the search from the position in reference view
         x0 = np.array([arr_pts[0][i][1], arr_pts[0][i][0], d1[0]/d0[0], d2[0]/d0[0], d_pts[0][i]/d0[0]])
@@ -292,17 +308,19 @@ def main():
 
         cst = [q0v[1],q0v[0],q1v[1],q1v[0],q2v[1],q2v[0],coeffs[i]]
         x = fsolve(F, x0, args=cst)
-        print("Time: ", time()-time_start, "Solution with fsolve: ", x)
         error_norm = np.linalg.norm(expected - x, ord=2)
         # assert error_norm < tol, 'norm of error =%g' % error_norm
-        print('norm of error =%g' % error_norm)
         # print("F(x) = ", F(x, cst))
 
-        time_start = time()
         # Test LS to solve the system
         res = minimize(sum_of_squares_of_F, x0, cst)
-        print("LS => time: ", time()-time_start, "\nx=", res["x"], res["fun"])
-        print('--------------------------------------------------')
+        if res["fun"] < 50 or error_norm < 200:
+            print("\nExpected u and v in the new view: ", expected)
+            print("Solution with fsolve: ", x)
+            print('norm of error =%g' % error_norm)
+            print("Least Squares => \nx=", res["x"], "\nResidual:", res["fun"])
+            print("Resiudal of parameters estimation was: ", resids[i])
+            print('--------------------------------------------------')
 
     print("Time recomputing point positions: ", time()-time_start)
 
