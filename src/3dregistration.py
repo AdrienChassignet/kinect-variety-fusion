@@ -42,10 +42,14 @@ rgb_cam2 = cv2.cvtColor(rgb_cam2, cv2.COLOR_BGR2RGB)
 depth_cam2 = np.load("data/depth_20210421-155835.npy")
 
 # Features extraction
-surf = cv2.xfeatures2d.SURF_create(hessianThreshold=200)
+# surf = cv2.xfeatures2d.SURF_create(hessianThreshold=200)
+surf = cv2.ORB_create(30000)
+# descriptor = cv2.xfeatures2d.BEBLID_create(0.9)
 # Find keypoints and descriptors directly
 kp1, des1 = surf.detectAndCompute(rgb_cam1, None)
 kp2, des2 = surf.detectAndCompute(rgb_cam2, None)
+des1 = np.float32(des1)
+des2 = np.float32(des2)
 
 # Feature matching
 # # Since SURF is a floating-point descriptor NORM_L2 is used
@@ -58,8 +62,8 @@ for m,n in matches:
     if m.distance < 0.8*n.distance:
         good_matches.append(m)
 
-# draw_matches(matches, rgb_cam1, kp1, rgb_cam2, kp2)
-# draw_matches(matches, np.uint8((depth_cam1/5000)*255), kp1, np.uint8((depth_cam2/5000)*255), kp2, window_name="Matches on depth images")
+draw_matches(matches, rgb_cam1, kp1, rgb_cam2, kp2)
+draw_matches(matches, np.uint8((depth_cam1/5000)*255), kp1, np.uint8((depth_cam2/5000)*255), kp2, window_name="Matches on depth images")
 print(len(good_matches), len(matches))
 
 # cv2.imshow("depth1", depth_cam1/5000)
