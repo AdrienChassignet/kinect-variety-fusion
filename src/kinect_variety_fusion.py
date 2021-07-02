@@ -19,8 +19,8 @@ VISUALIZE_FINAL = False
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 720
 
-FOLDER_NAME = "messybed_wide_baseline/"
-TIMESTAMP = "_20210618-1458"
+FOLDER_NAME = "multicap_smallB_bed/"
+TIMESTAMP = "_20210623-1903"
 
 #Intrinsics of the Kinect with the corresponding last 4 digits ID
 CAM_INTRINSICS_4512 = o3d.camera.PinholeCameraIntrinsic(1280,720,612.6449585,612.76092529,635.7354126,363.57376099)
@@ -196,7 +196,7 @@ def get_common_correspondences(A_corr, B_corr, dist_threshold=.1):
 
     for i in range(np.shape(A_corr)[0]): 
         for j in range(np.shape(B_corr)[0]): 
-            if np.sqrt(np.sum((A_corr[i] - B_corr[j])**2, axis=0)) < dist_threshold:
+            if np.sqrt(np.sum((A_corr[i] - B_corr[j])**2, axis=0)) == .0:
                 common_points.append(A_corr[i])
 
     return common_points
@@ -263,21 +263,21 @@ def main():
     rgb_cam1 = cv2.imread("data/"+FOLDER_NAME+"rgb_1"+TIMESTAMP+".jpg", cv2.IMREAD_COLOR)
     rgb_cam1 = cv2.cvtColor(rgb_cam1, cv2.COLOR_BGR2RGB)
     depth_cam1 = np.load("data/"+FOLDER_NAME+"depth_1"+TIMESTAMP+".npy")
-    depth_cam1 = gaussian_filter(depth_cam1, sigma, mode='constant')
+    # depth_cam1 = gaussian_filter(depth_cam1, sigma, mode='constant')
 
     A_pcd_raw, A_pcd_full = load_pointclouds(rgb_cam1, depth_cam1, cam_intrinsics=CAM_INTRINSICS_4512)
     
     rgb_cam2 = cv2.imread("data/"+FOLDER_NAME+"rgb_2"+TIMESTAMP+".jpg", cv2.IMREAD_COLOR)
     rgb_cam2 = cv2.cvtColor(rgb_cam2, cv2.COLOR_BGR2RGB)
     depth_cam2 = np.load("data/"+FOLDER_NAME+"depth_2"+TIMESTAMP+".npy")
-    depth_cam2 = gaussian_filter(depth_cam2, sigma, mode='constant')
+    # depth_cam2 = gaussian_filter(depth_cam2, sigma, mode='constant')
 
     B_pcd_raw, B_pcd_full = load_pointclouds(rgb_cam2, depth_cam2, cam_intrinsics=CAM_INTRINSICS_4512)
 
     rgb_cam3 = cv2.imread("data/"+FOLDER_NAME+"rgb_3"+TIMESTAMP+".jpg", cv2.IMREAD_COLOR)
     rgb_cam3 = cv2.cvtColor(rgb_cam3, cv2.COLOR_BGR2RGB)
     depth_cam3 = np.load("data/"+FOLDER_NAME+"depth_3"+TIMESTAMP+".npy")
-    depth_cam3 = gaussian_filter(depth_cam3, sigma, mode='constant')
+    # depth_cam3 = gaussian_filter(depth_cam3, sigma, mode='constant')
 
     C_pcd_raw, C_pcd_full = load_pointclouds(rgb_cam3, depth_cam3, cam_intrinsics=CAM_INTRINSICS_4512)
 
@@ -335,9 +335,9 @@ def main():
     Ac_corr_inliers, Ca_corr_inliers = remove_correspondences_outliers(Ac_corr, Ca_corr, Tac_icp, dist_threshold=.03)
     Bc_corr_inliers, Cb_corr_inliers = remove_correspondences_outliers(Bc_corr, Cb_corr, Tbc_icp, dist_threshold=.03)
 
-    A_corr_inliers = get_common_correspondences(Ab_corr_inliers, Ac_corr_inliers, dist_threshold=.01)
-    B_corr_inliers = get_common_correspondences(Ba_corr_inliers, Bc_corr_inliers, dist_threshold=.01)
-    C_corr_inliers = get_common_correspondences(Ca_corr_inliers, Cb_corr_inliers, dist_threshold=.01)
+    A_corr_inliers = get_common_correspondences(Ab_corr_inliers, Ac_corr_inliers, dist_threshold=.0001)
+    B_corr_inliers = get_common_correspondences(Ba_corr_inliers, Bc_corr_inliers, dist_threshold=.0001)
+    C_corr_inliers = get_common_correspondences(Ca_corr_inliers, Cb_corr_inliers, dist_threshold=.0001)
     
     print(np.shape(A_corr_inliers)[0], " matched points cam1")
     print(np.shape(B_corr_inliers)[0], " matched points cam2")

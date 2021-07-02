@@ -116,3 +116,20 @@ def convex_hull(points, split=False):
       return lower[:-1] + upper[:-1]
     else:
       return lower[:-1], upper[:-1]
+
+def get_neighborhood(u, v, radius, img):
+    """
+    Return the square neighborhood of a given point in image.
+    u and v is the location of the point where we want the neighborhood.
+    Radius is the size of the neighborhood (e.g. radius=1 gives a 3x3 neighborhood).
+    """
+    (height, width) = np.shape(img)
+    neighborhood = np.zeros((2*radius+1, 2*radius+1))
+
+    for i in range(-radius, radius+1):
+        if v+i >= 0 or v+i < height:
+            for j in range(-radius, radius+1):
+                if u+j >= 0 or u+j < width:
+                    neighborhood[i+radius, j+radius] = img[v+i, u+j]
+
+    return neighborhood

@@ -107,21 +107,24 @@ def main():
                     [0., 10., 50.],
                     [0., 0., 1.]])
 
-    t1 = np.zeros(3)
+    t1 = np.array([0., 0., 0.])
     img1_points, img1 = project_points(points, np.eye(3), t1, K1)
     print("Points image position in view 1: ", img1_points)
 
-    t12 = t1 + np.array([10., 0., 0.])
+    t12 = t1 + np.array([20., 0., 0.])
     img2_points, img2 = project_points(points, np.eye(3), t12, K1)
     print("Points image position in view 2: ", img2_points)
 
+    t13 = t1 + np.array([0., 20., -0.])
+    img3_points, img3 = project_points(points, np.eye(3), t13, K1)
+    print("Points image position in view 3: ", img3_points)
+
     # Create the virtual view we want to recreate from the reference ones
-    t1v = np.array([5., 0., 0.])
+    t1v = np.array([5., 10., 15.])
     img_new_points, img_new = project_points(points, np.eye(3), t1v, K1)
     q0v = (u0v, v0v) = img_new_points[0]
     q1v = (u1v, v1v) = img_new_points[1]
     q2v = (u2v, v2v) = img_new_points[2]
-
 
     # Estimate the structure coefficients for each 3D points seen in the input views
     m = points.shape[0]
@@ -137,15 +140,21 @@ def main():
         print("Processing the point ", points[i])
         print('--------------------------------------------------')
 
+        depth_offset = 0
         K1is = build_constraints_matrix(img1_points[0], img1_points[1], img1_points[2], proj_depth[0],
                                         proj_depth[1], proj_depth[2], img1_points[i], proj_depth[i])
-        K2is = build_constraints_matrix(img2_points[0], img2_points[1], img2_points[2], proj_depth[0],
-                                        proj_depth[1], proj_depth[2], img2_points[i], proj_depth[i])
-        Kis = np.concatenate((K1is, K2is), axis=0) 
+        K2is = build_constraints_matrix(img2_points[0], img2_points[1], img2_points[2], proj_depth[0]-depth_offset,
+                                        proj_depth[1]-depth_offset, proj_depth[2]-depth_offset, img2_points[i], proj_depth[i]-depth_offset)
+        K3is = build_constraints_matrix(img3_points[0], img3_points[1], img3_points[2], proj_depth[0],
+                                        proj_depth[1], proj_depth[2], img3_points[i], proj_depth[i])
+        Kis = np.concatenate((K1is, K2is, K3is), axis=0) 
         _, D, V = np.linalg.svd(Kis)
         # print("Residuals D: ", D)
+        # print("Residuals D: ", D)
         coeffs.append(V[-1]/V[-1,-1])
-        print("Time: ", time()-time_start, "Structure coefficients: ", coeffs[-1])
+        # print("Time: ", time()-time_start, "Structure coefficients: ", coeffs[-1])
+        # print("Residual error: ", np.matmul(Kis,coeffs[-1]))
+        print("Residual error sum of squares: ", np.sum(np.matmul(Kis, coeffs[-1])**2))
         # x1 = [img1_points[i][0], img1_points[i][1], proj_depth[1]/proj_depth[0], proj_depth[2]/proj_depth[0], proj_depth[i]/proj_depth[0]]
         # cst = [img1_points[0][0], img1_points[0][1], img1_points[1][0], img1_points[1][1], img1_points[2][0], img1_points[2][1], coeffs[-1]]
         # print("Equations evaluated with found coefficients: ", F(x1, cst))
@@ -153,7 +162,7 @@ def main():
         # Estimate the position of the current processed point in the new virtual view
         qv = (uv, vv) = img_new_points[i]
         expected = np.array([uv, vv, proj_depth[1]/proj_depth[0], proj_depth[2]/proj_depth[0], proj_depth[i]/proj_depth[0]])
-        # print("\nExpected u and v in the new view: ", expected)
+        print("\nExpected u and v in the new view: ", expected)
         
         # Start the search from the position in reference view
         x0 = np.array([img1_points[i][0], img1_points[i][1], proj_depth[1]/proj_depth[0], proj_depth[2]/proj_depth[0], proj_depth[i]/proj_depth[0]])
@@ -162,10 +171,10 @@ def main():
 
         cst = [u0v,v0v,u1v,v1v,u2v,v2v,coeffs[-1]]
         x = fsolve(F, x0, args=cst)
-        print("Time: ", time()-time_start, "Solution with fsolve: ", x)
-        error_norm = np.linalg.norm(expected - x, ord=2)
-        # assert error_norm < tol, 'norm of error =%g' % error_norm
-        print('norm of error =%g' % error_norm)
+        # print("Time: ", time()-time_start, "Solution with fsolve: ", x)
+        # error_norm = np.linalg.norm(expected - x, ord=2)
+        # # assert error_norm < tol, 'norm of error =%g' % error_norm
+        # print('norm of error =%g' % error_norm)
         # print("F(x) = ", F(x, cst))
 
         novel_view[round(x[1]), round(x[0]), :] = [255,255,255]

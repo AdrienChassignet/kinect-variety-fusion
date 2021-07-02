@@ -48,4 +48,9 @@ def F(x, cst):
     ])
 
 def sum_of_squares_of_F(x, cst):
+    """
+    Return the sum of squares of the system of equations.
+    cst = [u0, v0, u1, v1, u2, v2, coeffs]
+    x = [u, v, g1, g2, g3]
+    """
     return np.sum(F(x,cst)**2)
