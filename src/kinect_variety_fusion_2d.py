@@ -14,14 +14,21 @@ VOXEL_SIZE = 0.025
 VISUALIZE = False
 VISUALIZE_FINAL = False
 
-WINDOW_WIDTH = 1280
-WINDOW_HEIGHT = 720
+WINDOW_WIDTH = 320 #1280
+WINDOW_HEIGHT = 240 #720
 
-FOLDER_NAME = "data/pillows_smallB/"
-TIMESTAMP = "_20210629-1539"
+FOLDER_NAME = "data/artificial_data/bathroom/"
+TIMESTAMP = ""
 
 #Intrinsics of the Kinect with the corresponding last 4 digits ID
 CAM_INTRINSICS_4512 = o3d.camera.PinholeCameraIntrinsic(1280,720,612.6449585,612.76092529,635.7354126,363.57376099)
+
+def load_rgbd2(idx):
+    rgb_cam = cv2.imread(FOLDER_NAME+"photo/"+idx+TIMESTAMP+".jpg", cv2.IMREAD_COLOR)
+    rgb_cam = cv2.cvtColor(rgb_cam, cv2.COLOR_BGR2RGB)
+    depth_cam = cv2.imread(FOLDER_NAME+"depth/"+idx+TIMESTAMP+".png", cv2.IMREAD_UNCHANGED)
+
+    return rgb_cam, depth_cam
 
 def load_rgbd(idx):
     rgb_cam = cv2.imread(FOLDER_NAME+"rgb_"+idx+TIMESTAMP+".jpg", cv2.IMREAD_COLOR)
@@ -112,14 +119,14 @@ def image_points_selection(rgb_cams, depth_cams):
     centroid_idx = pts[ref_view].index(valid_ref_pts[np.argmin(np.einsum('ij,ij->i', deltas, deltas))])
 
     up_hull, low_hull = convex_hull(valid_ref_pts, split=True)
-    # for pt in up_hull:
-    #     rgb_cams[0] = cv2.circle(rgb_cams[0], pt, 8, (0,255,0), -1)
-    # for pt in low_hull:
-    #     rgb_cams[0] = cv2.circle(rgb_cams[0], pt, 8, (0,0,255), -1)
+    for pt in up_hull:
+        rgb_cams[0] = cv2.circle(rgb_cams[0], pt, 8, (0,255,0), -1)
+    for pt in low_hull:
+        rgb_cams[0] = cv2.circle(rgb_cams[0], pt, 8, (0,0,255), -1)
     # Select first extreme point in a counter-clockwise order in both lower and upper hull
     q1_idx = pts[ref_view].index(low_hull[-1])
-    q2_idx = pts[ref_view].index(up_hull[-2])
-    centroid_idx = pts[ref_view].index(low_hull[0])
+    q2_idx = pts[ref_view].index(up_hull[-1])
+    # centroid_idx = pts[ref_view].index(low_hull[len(low_hull)//2])
     # TODO: noncollinearity check!
 
     q0 = []
@@ -192,7 +199,7 @@ def common_points_extraction(pts):
 
     return common_pts
 
-def features_matching_accross_all_pairs(kp, des, nn_match_ratio=.55, max_feats=15000):
+def features_matching_accross_all_pairs(kp, des, nn_match_ratio=.7, max_feats=15000):
     matcher = cv2.DescriptorMatcher_create(cv2.DescriptorMatcher_FLANNBASED)
     matched_pts = [[[] for j in range(max_feats)] for i in range(len(kp))]
     max_idx = 0
@@ -371,10 +378,10 @@ def depth_value_extraction(dmap_list, image_list, pts_list):
         for i in range(len(pts_list)): # Check depth of current point in each view
             if pts_list[i][idx] != []:
                 (u,v) = pts_list[i][idx]
-                neighborhood = get_neighborhood(u, v, 1, dmap_list[i])
+                neighborhood = get_neighborhood(u, v, 2, dmap_list[i])
                 nonzero = neighborhood[np.nonzero(neighborhood)]
                 count = len(nonzero)
-                if count > 4 and (max(nonzero) - min(nonzero)) < 20:
+                if count > 0 and (max(nonzero) - min(nonzero)) < 50:
                     depth[i] = sorted(nonzero)[count//2] #Take median value
                 else:
                     valid = False
@@ -397,10 +404,10 @@ def main():
 
     rgb_cams = []
     depth_cams = []
-    cams_idx = [0,4,9]
+    cams_idx = [50,75,100]
     for i in cams_idx:
         # if i != 2: # keep view 2 for reconstruction
-        rgb_cam, depth_cam = load_rgbd(str(i))
+        rgb_cam, depth_cam = load_rgbd2(str(i))
         rgb_cams.append(rgb_cam)
         depth_cams.append(depth_cam)
     print("Loaded data in ", time()-start_time, " seconds.")
@@ -410,7 +417,7 @@ def main():
     print("Points selection in ", time()-start_time, " seconds.")
     print(len(pts[0]))
 
-    virtual_cam = 4
+    virtual_cam = 75
     virtual_view = cams_idx.index(virtual_cam)
     print("Reconstructing camera view number ", virtual_cam)
     q0v = q0[virtual_view]
