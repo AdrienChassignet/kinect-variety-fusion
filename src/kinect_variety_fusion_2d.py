@@ -1,3 +1,4 @@
+from os import error
 import cv2
 import numpy as np
 import open3d as o3d
@@ -6,9 +7,11 @@ from helpers import *
 from fp_piv import *
 import canny_edge_detector
 import copy
-from scipy.optimize import fsolve, minimize
+from scipy.optimize import fsolve, minimize, Bounds, least_squares
 from time import time
 from scipy.spatial.transform import Rotation as R
+from visualization import plot_F_squared_around_x
+from functools import partial
 
 VOXEL_SIZE = 0.025
 VISUALIZE = False
@@ -17,16 +20,18 @@ VISUALIZE_FINAL = False
 WINDOW_WIDTH = 320 #1280
 WINDOW_HEIGHT = 240 #720
 
-FOLDER_NAME = "data/artificial_data/bathroom/"
-TIMESTAMP = ""
+MATCH_RATIO = 0.77 #This influence how tolerant we will be to discriminate outlier matches, the lower the pickier 
+
+FOLDER_NAME = "data/artificial_data/7/"
+TIMESTAMP = "_20210629-1539"
 
 #Intrinsics of the Kinect with the corresponding last 4 digits ID
 CAM_INTRINSICS_4512 = o3d.camera.PinholeCameraIntrinsic(1280,720,612.6449585,612.76092529,635.7354126,363.57376099)
 
 def load_rgbd2(idx):
-    rgb_cam = cv2.imread(FOLDER_NAME+"photo/"+idx+TIMESTAMP+".jpg", cv2.IMREAD_COLOR)
+    rgb_cam = cv2.imread(FOLDER_NAME+"photo/"+idx+".jpg", cv2.IMREAD_COLOR)
     rgb_cam = cv2.cvtColor(rgb_cam, cv2.COLOR_BGR2RGB)
-    depth_cam = cv2.imread(FOLDER_NAME+"depth/"+idx+TIMESTAMP+".png", cv2.IMREAD_UNCHANGED)
+    depth_cam = cv2.imread(FOLDER_NAME+"depth/"+idx+".png", cv2.IMREAD_UNCHANGED)
 
     return rgb_cam, depth_cam
 
@@ -63,7 +68,7 @@ def load_images(visu=False):
 
     return rgb_cam1, depth_cam1, rgb_cam2, depth_cam2
 
-def image_points_selection(rgb_cams, depth_cams):
+def image_points_selection(rgb_cams, depth_cams, by_hand=False):
     """
     Retrieve matching points among all the views and pick the 3 reference points.
     The 1st ref point Q0 is the centroid of the matched points, the 2nd point Q1 is the
@@ -74,12 +79,18 @@ def image_points_selection(rgb_cams, depth_cams):
     Outputs :   - q0: List of image position of Q0 in the input views
                 - q1: List of image position of Q1 in the input views
                 - q2: List of image position of Q2 in the input views
-                - arr_pts: List of image position of matched points in the input views
+                - pts: List of image position of matched points in the input views
                 - d_pts: List of depth corresponding to matched points in the input views
     """
-
-    pts = matched_points_extraction(rgb_cams, visualize=True)
-    pts = common_points_extraction(pts)
+    if by_hand:
+        pts = [[(52,76), (134,179), (262,170), (148,10), (111,122), (262,94)],
+                [(55,80), (132,184), (264,175), (151,14), (110,126), (263,97)],
+                [(53,84), (126,189), (262,180), (151,17), (106,130), (259,101)],
+                [(54,86), (126,195), (263,185), (151,19), (106,134), (260,106)],
+                [(49,87), (127,207), (264,194), (148,18), (104,141), (265,115)]]
+    else:
+        pts = matched_points_extraction(rgb_cams, visualize=True)
+        pts = common_points_extraction(pts)
     m = len(pts[0])
 
     d_pts, pts = depth_value_extraction(depth_cams, rgb_cams, pts)
@@ -120,13 +131,13 @@ def image_points_selection(rgb_cams, depth_cams):
 
     up_hull, low_hull = convex_hull(valid_ref_pts, split=True)
     for pt in up_hull:
-        rgb_cams[0] = cv2.circle(rgb_cams[0], pt, 8, (0,255,0), -1)
+        rgb_cams[0] = cv2.circle(rgb_cams[0], pt, 4, (0,255,0), -1)
     for pt in low_hull:
-        rgb_cams[0] = cv2.circle(rgb_cams[0], pt, 8, (0,0,255), -1)
+        rgb_cams[0] = cv2.circle(rgb_cams[0], pt, 4, (0,0,255), -1)
     # Select first extreme point in a counter-clockwise order in both lower and upper hull
     q1_idx = pts[ref_view].index(low_hull[-1])
     q2_idx = pts[ref_view].index(up_hull[-1])
-    # centroid_idx = pts[ref_view].index(low_hull[len(low_hull)//2])
+    # centroid_idx = pts[ref_view].index(low_hull[0])
     # TODO: noncollinearity check!
 
     q0 = []
@@ -146,30 +157,18 @@ def image_points_selection(rgb_cams, depth_cams):
         idxs = [centroid_idx, q1_idx, q2_idx]
         idxs.sort(reverse=True)
         for idx in idxs:
-            rgb_cams[i] = cv2.circle(rgb_cams[i], pts[i][idx], 6, (255,0,0), -1)
-            depth_cams[i] = cv2.circle(depth_cams[i], pts[i][idx], 4, (4000), -1)
+            rgb_cams[i] = cv2.circle(rgb_cams[i], pts[i][idx], 3, (255,0,0), -1)
+            depth_cams[i] = cv2.circle(depth_cams[i], pts[i][idx], 2, (8000), -1)
             del pts[i][idx]
             del d_pts[i][idx]
 
     for idx in range(len(pts[0])):
         rgb = np.random.rand(3,)*255
         for i in range(len(rgb_cams)):
-            rgb_cams[i] = cv2.circle(rgb_cams[i], pts[i][idx], 4, rgb, -1)
-            depth_cams[i] = cv2.circle(depth_cams[i], pts[i][idx], 2, (4000), -1)
+            rgb_cams[i] = cv2.circle(rgb_cams[i], pts[i][idx], 3, rgb, -1)
+            depth_cams[i] = cv2.circle(depth_cams[i], pts[i][idx], 3, (8000), -1)
 
     print(len(pts[0]), pts[0])
-
-    fig = plt.figure("Matched features")
-    for i in range(len(rgb_cams)):
-        ax = fig.add_subplot((len(rgb_cams)+2)//3, 3, i+1)
-        imgplot = plt.imshow(rgb_cams[i])
-        ax.set_title('Cam{}'.format(i))
-    fig2 = plt.figure("Corresponding depth")
-    for i in range(len(rgb_cams)):
-        ax2 = fig2.add_subplot((len(rgb_cams)+2)//3, 3, i+1)
-        imgplot2 = plt.imshow(depth_cams[i])
-        ax2.set_title("Sensor{}".format(i))
-    plt.show()
 
     return q0, d0, q1, d1, q2, d2, pts, d_pts
 
@@ -199,7 +198,7 @@ def common_points_extraction(pts):
 
     return common_pts
 
-def features_matching_accross_all_pairs(kp, des, nn_match_ratio=.7, max_feats=15000):
+def features_matching_accross_all_pairs(kp, des, nn_match_ratio=MATCH_RATIO, max_feats=15000):
     matcher = cv2.DescriptorMatcher_create(cv2.DescriptorMatcher_FLANNBASED)
     matched_pts = [[[] for j in range(max_feats)] for i in range(len(kp))]
     max_idx = 0
@@ -378,10 +377,10 @@ def depth_value_extraction(dmap_list, image_list, pts_list):
         for i in range(len(pts_list)): # Check depth of current point in each view
             if pts_list[i][idx] != []:
                 (u,v) = pts_list[i][idx]
-                neighborhood = get_neighborhood(u, v, 2, dmap_list[i])
+                neighborhood = get_neighborhood(u, v, 0, dmap_list[i])
                 nonzero = neighborhood[np.nonzero(neighborhood)]
                 count = len(nonzero)
-                if count > 0 and (max(nonzero) - min(nonzero)) < 50:
+                if count > 0: # and (max(nonzero) - min(nonzero)) < 100:
                     depth[i] = sorted(nonzero)[count//2] #Take median value
                 else:
                     valid = False
@@ -399,96 +398,124 @@ def depth_value_extraction(dmap_list, image_list, pts_list):
 #----------------------------------------------------------------------------------------------
 
 def main():
-    # rgb_cam1, depth_cam1, rgb_cam2, depth_cam2 = load_images(visu=False)
     start_time = time()
 
     rgb_cams = []
     depth_cams = []
-    cams_idx = [50,75,100]
-    for i in cams_idx:
+    cams_idx = [50,75,100,125,150]
+    for idx in cams_idx:
         # if i != 2: # keep view 2 for reconstruction
-        rgb_cam, depth_cam = load_rgbd2(str(i))
+        rgb_cam, depth_cam = load_rgbd2(str(idx))
         rgb_cams.append(rgb_cam)
         depth_cams.append(depth_cam)
+        #TODO: get the maximum depth value to set upper bound on solution space
     print("Loaded data in ", time()-start_time, " seconds.")
 
     start_time = time()
-    q0, d0, q1, d1, q2, d2, pts, d_pts = image_points_selection(rgb_cams, depth_cams)
+    q0, d0, q1, d1, q2, d2, pts, d_pts = image_points_selection(rgb_cams, depth_cams, by_hand=True)
     print("Points selection in ", time()-start_time, " seconds.")
     print(len(pts[0]))
 
-    virtual_cam = 75
+    virtual_cam = 100
     virtual_view = cams_idx.index(virtual_cam)
     print("Reconstructing camera view number ", virtual_cam)
     q0v = q0[virtual_view]
     q1v = q1[virtual_view]
     q2v = q2[virtual_view]
 
-    coeffs = []
-    resids = []
-    correct_points = []
+    # coeffs = []
+    # resids = []
     time_start = time()
-    for i in range(len(pts[0])):
-        # time_start = time()
-        # print('--------------------------------------------------')
-        # print("Processing the point ", i)
-        # print('--------------------------------------------------')
+    # for pt_idx in range(len(pts[0])):
+    #     Kis = []
+    #     for view in range(len(pts)):
+    #         if view != virtual_view and pts[view][pt_idx] != []:
+    #             Kis.append(build_constraints_matrix(q0[view], q1[view], q2[view], d0[view], d1[view], d2[view], pts[view][pt_idx], d_pts[view][pt_idx]))
+    #     Kis = np.concatenate(Kis) 
+    #     _, D, V = np.linalg.svd(Kis)
+    #     coeffs.append(V[-1]/V[-1,-1])
+    #     print("Residual error: ", np.matmul(Kis, coeffs[-1]))
+    #     print("Residual error sum of squares: ", np.sum(np.matmul(Kis, coeffs[-1])**2))
+    #     resids.append(np.sum(np.matmul(Kis, coeffs[-1])**2))
+    #     # print("Time: ", time()-time_start, "Structure coefficients: ", coeffs[-1])
 
-        Kis = []
-        for j in range(len(pts)):
-            if j != virtual_view and pts[j][i] != []:
-                Kis.append(build_constraints_matrix(q0[j], q1[j], q2[j], d0[j], d1[j], d2[j], pts[j][i], d_pts[j][i]))
-        Kis = np.concatenate(Kis) 
-        _, D, V = np.linalg.svd(Kis)
-        if D[-1] < .01:
-            correct_points.append(i)
-            print("Residuals D: ", D)
-        coeffs.append(V[-1]/V[-1,-1])
-        print("Residual error: ", np.matmul(Kis, coeffs[-1]))
-        print("Residual error sum of squares: ", np.sum(np.matmul(Kis, coeffs[-1])**2))
-        resids.append(np.sum(np.matmul(Kis, coeffs[-1])**2))
-        # print("Time: ", time()-time_start, "Structure coefficients: ", coeffs[-1])
+    coeffs, resids = get_structure_coefficients(q0, q1, q2, d0, d1, d2, pts, d_pts)
     print("Time computing parameters: ", time()-time_start)
-    print(correct_points)
-
 
     vertices = [] # format [u,v,d]
     error_img_pos = np.empty(0)
     error_depth = np.empty(0)
+    error_u = np.empty(0)
+    error_v = np.empty(0)
+    results = []
+    csts = []
     virtual_pts = []
     virtual_img = 255 * np.ones([WINDOW_HEIGHT,WINDOW_WIDTH,3], dtype=np.uint8)
-    for i in range(len(pts[0])):
-    # for idx, i in enumerate(correct_points):
+    for pt_idx in range(len(pts[0])):
         # Estimate the position of the current processed point in the new virtual view
-        qv = pts[virtual_view][i]
+        qv = pts[virtual_view][pt_idx]
         if qv != []:
             (uv, vv) = qv
-            expected = np.array([uv, vv, d1[virtual_view]/d0[virtual_view], d2[virtual_view]/d0[virtual_view], d_pts[virtual_view][i]/d0[virtual_view]])
+            # expected = np.array([uv, vv, d_pts[virtual_view][i]/d0[virtual_view], d1[virtual_view]/d0[virtual_view], d2[virtual_view]/d0[virtual_view]])
+            expected = np.array([uv, vv, d_pts[virtual_view][pt_idx], 1, 1])
             
             # Start the search from a close position in a reference view
-            ref_view = 0
-            while ref_view == virtual_view or pts[ref_view][i] == []:
+            ref_view = virtual_view+1
+            while ref_view == virtual_view or pts[ref_view][pt_idx] == []:
                 ref_view += 1
             # x0 = np.array([pts[ref_view][i][0], pts[ref_view][i][1], d1[ref_view]/d0[ref_view], d2[ref_view]/d0[ref_view], d_pts[ref_view][i]/d0[ref_view]])
+            # x0 = np.array([pts[ref_view][pt_idx][0], pts[ref_view][pt_idx][1], d_pts[ref_view][pt_idx], 1, 1])
             # x0 = np.array([WINDOW_WIDTH//2, WINDOW_HEIGHT//2, .1, .1, .1])
             x0 = expected
             # print("Initialization [u, v, g1, g2, g3] = ", x0)
 
-            cst = [q0v[0],q0v[1],q1v[0],q1v[1],q2v[0],q2v[1],coeffs[i]]
-            x = fsolve(F, x0, args=cst)
-            error_norm = np.linalg.norm(expected - x, ord=2)
+            cst = [q0v[0],q0v[1],q1v[0],q1v[1],q2v[0],q2v[1],coeffs[pt_idx], d0[virtual_view], d1[virtual_view], d2[virtual_view]]
+            csts.append(cst)
+            # x = fsolve(F, x0, args=cst)
+            # error_norm = np.linalg.norm(expected - x, ord=2)
             # assert error_norm < tol, 'norm of error =%g' % error_norm
             # print("F(x) = ", F(x, cst))
 
-            # Test LS to solve the system
-            res = minimize(sum_of_squares_of_F, x0, cst)
-            if res["fun"]:
+            # Minimize sum of squares to solve the system
+
+            # Define bounds of the solution space TODO: use max depth value of inputs with security margin
+            b = [[0,0,0,-np.inf,-np.inf], [WINDOW_WIDTH,WINDOW_HEIGHT,6000,np.inf,np.inf]]
+            # res = {'x': [0,0,0,0,0], 'fun': 0}
+            # res['x'], res['fun'] = minimize_brute_force(x0, cst, b, px_width=30)
+            # b = [[x0[0]-100, x0[1]-100, x0[2]-500, 1, 1], [x0[0]+100, x0[1]+100, x0[2]+500, 1, 1]]
+
+            # partial_F_3var = partial(call_F_3var_arg, F_3var, cst)
+            # res = least_squares(partial_F_3var, x0, bounds=b, method='trf', loss='linear')
+
+            # Convert bounds into constraints
+            cons = []
+            for idx in range(len(b[0])):
+                lower = b[0][idx]
+                upper = b[1][idx]
+                l = {'type':'ineq', 'fun': lambda x, lb=lower, i=idx: x[i] - lb}
+                u = {'type':'ineq', 'fun': lambda x, ub=upper, i=idx: ub - x[i]}
+                cons.append(l)
+                cons.append(u)
+            b = Bounds(b[0], b[1], False)
+
+            res = minimize(sum_of_squares_of_F_3var, x0, cst, method='L-BFGS-B', constraints=cons, bounds=b, options={'disp': True})
+            # print(pt_idx, "- ", res["success"])
+            if res:
                 u = res["x"][0] 
                 v = res["x"][1]
-                d = res["x"][4]*d0[virtual_view]
+                d = res["x"][2]
                 error_img_pos = np.append(error_img_pos, np.linalg.norm(np.array([uv,vv]) - np.array([u,v]), ord=2))
-                error_depth = np.append(error_depth, abs(d_pts[virtual_view][i] - d))
+                error_depth = np.append(error_depth, abs(d_pts[virtual_view][pt_idx] - d))
+                error_u = np.append(error_u, uv-u)
+                error_v = np.append(error_v, vv-v)
+                results.append(res['x'])
                 virtual_pts.append((u,v))
+
+                print("Expected result: ", expected)
+                print("Initialization: ", x0)
+                print("Solution found: ", res["x"], " / residual being: ", res["fun"])
+                print('--------------------------------------------------')
+
             # if res["fun"] < .001: # or error_norm < 50:
             #     print("\nExpected u and v in the new view: ", expected)
             #     # print("Solution with fsolve: ", x)
@@ -497,20 +524,35 @@ def main():
             #     print("Resiudal of parameters estimation was: ", resids[i])
             #     print('--------------------------------------------------')
 
-    print("Time recomputing point positions: ", time()-time_start)
+    for idx in range(len(error_img_pos)):
+        print("{4}- Point {0} ; Residual error for coeffs: {1} ; Pixel error: {2} ; Depth error: {3}".format(pts[virtual_view][idx], resids[idx], error_img_pos[idx], error_depth[idx], idx))
+
+    print("Time recomputing {} point positions: ".format(len(error_img_pos)), time()-time_start)
     print("Error in pixels for point placement: \nMean: {0} / Max: {1} / Min: {2} / Std: {3}".format(np.mean(error_img_pos),
             np.max(error_img_pos), np.min(error_img_pos), np.std(error_img_pos)))
     print("Error in mm for corresponding depth: \nMean: {0} / Max: {1} / Min: {2} / Std: {3}".format(np.mean(error_depth),
             np.max(error_depth), np.min(error_depth), np.std(error_depth)))
 
 
+    fig = plt.figure("Matched features")
+    for i in range(len(rgb_cams)):
+        ax = fig.add_subplot((len(rgb_cams)+2)//3, 3, i+1)
+        imgplot = plt.imshow(rgb_cams[i])
+        ax.set_title('Cam{}'.format(i))
+    fig2 = plt.figure("Corresponding depth")
+    for i in range(len(rgb_cams)):
+        ax2 = fig2.add_subplot((len(rgb_cams)+2)//3, 3, i+1)
+        imgplot2 = plt.imshow(depth_cams[i])
+        ax2.set_title("Sensor{}".format(i))
+
     virtual_img = cv2.circle(virtual_img, q0v, 7, (255,0,0), -1)
     virtual_img = cv2.circle(virtual_img, q1v, 7, (255,0,0), -1)
     virtual_img = cv2.circle(virtual_img, q2v, 7, (255,0,0), -1)
-    for idx in range(len(pts[0])):
+    for idx in range(len(virtual_pts)):
         rgb = np.random.rand(3,)*255
         rgb_cams[virtual_view] = cv2.circle(rgb_cams[virtual_view], pts[virtual_view][idx], 4, rgb, -1)
-        virtual_img = cv2.circle(virtual_img, (int(round(virtual_pts[idx][0])),int(round(virtual_pts[idx][1]))), 5, rgb, -1)
+        virtual_img = cv2.circle(virtual_img, (int(round(virtual_pts[idx][0])),int(round(virtual_pts[idx][1]))), 4, rgb, -1)
+        rgb_cams[virtual_view] = cv2.circle(rgb_cams[virtual_view], (int(round(virtual_pts[idx][0])),int(round(virtual_pts[idx][1]))), 2, rgb-40, -1)
 
     fig = plt.figure("Result")
     ax = fig.add_subplot(1, 2, 1)
@@ -519,6 +561,13 @@ def main():
     ax = fig.add_subplot(1, 2, 2)
     imgplot = plt.imshow(virtual_img)
     ax.set_title('Virtual image point placement')
+
+    for i, res in enumerate(results):
+        if i in [0,1,2]:
+            fig = plot_F_squared_around_x(res, csts[i], name="Plots of point {}".format(i))
+        # if error_img_pos[-1] > 1:
+        #     fig2 = plot_F_squared_around_x(expected, cst, name="F² around expected solution")
+
     plt.show()
 
     print("Finished")
