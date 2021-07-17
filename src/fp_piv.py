@@ -141,6 +141,36 @@ def F_3var_norm(x, cst):
         coeffs[0]*r*l + coeffs[1]*(l*s+m*r) + coeffs[2]*m*s + coeffs[3]*(l*t+n*r) + coeffs[4]*(m*t+s*n) + t*n   
     ])
 
+def F_3var_norm_fact(x, cst):
+    """
+    Define the system of equations.
+    cst = [u0, v0, u1, v1, u2, v2, coeffs, d0, d1, d2]
+    x = [u, v, d3, 1, 1]
+    """
+    [u0, v0, u1, v1, u2, v2, coeffs, d0, d1, d2] = cst
+    [u, v, d3, _, _] = x
+    a = d1*u1 - d0*u0
+    b = d2*u2 - d0*u0
+    l = d1*v1 - d0*v0 
+    m = d2*v2 - d0*v0
+    r = d1 - d0
+    s = d2 - d0
+    c1 = coeffs[0]*(a**2-l**2) + 2*coeffs[1]*(a*b-l*m) + coeffs[2]*(b**2-m**2) + 2*coeffs[3]*d0*(l*v0 - a*u0) + 2*coeffs[4]*d0*(m*v0 - b*u0) + (d0*u0)**2 - (d0*v0)**2
+    c2 = coeffs[0]*(l**2-r**2) + 2*coeffs[1]*(l*m-r*s) + coeffs[2]*(m**2-s**2) + 2*coeffs[3]*d0*(r - l*v0) + 2*coeffs[4]*d0*(s - m*v0) + (d0*v0)**2 - d0**2
+    c3 = coeffs[0]*a*l + coeffs[1]*(l*b+m*a) + coeffs[2]*m*b - coeffs[3]*d0*(l*u0 + a*v0) - coeffs[4]*d0*(m*u0 + b*v0) + u0*v0*d0**2
+    c4 = coeffs[0]*a*r + coeffs[1]*(r*b+s*a) + coeffs[2]*s*b - coeffs[3]*d0*(r*u0 + a) - coeffs[4]*d0*(s*u0 + b) + u0*d0**2
+    c5 = coeffs[0]*r*l + coeffs[1]*(l*s+m*r) + coeffs[2]*m*s - coeffs[3]*d0*(r*v0 + l) - coeffs[4]*d0*(s*v0 + m) + v0*d0**2
+    alpha = a*coeffs[3] + b*coeffs[4] - u0*d0
+    beta = l*coeffs[3] + m*coeffs[4] - v0*d0
+    gamma = r*coeffs[3] + s*coeffs[4] - d0
+    return np.array([
+        d3*(u*(d3*u + 2*alpha) - v*(d3*v + 2*beta)) + c1,
+        d3*(v*(d3*v + 2*beta) - d3 - 2*gamma) + c2,
+        d3*(d3*u*v + u*beta + v*alpha) + c3,
+        d3*(d3*u + u*gamma + alpha) + c4,
+        d3*(d3*v + v*gamma + beta) + c5 
+    ])
+
 def call_F_3var_arg(F_3var, cst, x):
     return F_3var(x, cst)
 
@@ -159,6 +189,14 @@ def sum_of_squares_of_F_3var_norm(x, cst):
     x = [u, v, d3, 1, 1]
     """
     return np.sum(F_3var_norm(x,cst)**2)
+
+def sum_of_squares_of_F_3var_norm_fact(x, cst):
+    """
+    Return the sum of squares of the system of equations.
+    cst = [u0, v0, u1, v1, u2, v2, coeffs, d0, d1, d2]
+    x = [u, v, d3, 1, 1]
+    """
+    return np.sum(F_3var_norm_fact(x,cst)**2)
 
 def minimize_brute_force(x0, cst, bounds, px_width=25, d_width=500):
     u0 = int(x0[0])

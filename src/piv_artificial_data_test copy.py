@@ -149,9 +149,9 @@ def main():
         print("Expected normed solution in the new view: ", uv/IMAGE_SIZE, vv/IMAGE_SIZE, proj_depth_v[i])
         
         # Start the search from the position in reference view
-        # x0 = np.array([img1_points[i][0], img1_points[i][1], proj_depth[i], 1, 1])
+        x0 = np.array([img1_points[i][0], img1_points[i][1], proj_depth[i], 1, 1])
         # x0 = np.array([50, 50, .1, .1, .1])
-        x0 = np.array([uv/IMAGE_SIZE, vv/IMAGE_SIZE, proj_depth_v[i], 1, 1])
+        # x0 = np.array([uv/IMAGE_SIZE, vv/IMAGE_SIZE, proj_depth_v[i], 1, 1])
         print("Initialization [u, v, d, 1, 1] = ", x0)
 
         cst = [u0v,v0v,u1v,v1v,u2v,v2v,coeffs[-1], proj_depth_v[0], proj_depth_v[1], proj_depth_v[2]]
@@ -181,7 +181,7 @@ def main():
             cons.append(l)
             cons.append(u)
         b = Bounds(b[0], b[1], False)
-        res = minimize(sum_of_squares_of_F_3var_norm, x0, cst, method='L-BFGS-B', bounds=b, constraints=cons)
+        res = minimize(sum_of_squares_of_F_3var, x0, cst, method='Nelder-mead', bounds=b, constraints=cons)
         print("LS => time: ", time()-time_start, "\nx=", res["x"], res["fun"])
         print('--------------------------------------------------')
         u = res["x"][0]*IMAGE_SIZE 

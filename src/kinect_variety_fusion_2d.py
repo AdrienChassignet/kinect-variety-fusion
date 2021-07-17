@@ -19,10 +19,11 @@ VISUALIZE_FINAL = False
 
 WINDOW_WIDTH = 320 #1280
 WINDOW_HEIGHT = 240 #720
+MAX_DEPTH = 5000
 
-MATCH_RATIO = 0.77 #This influence how tolerant we will be to discriminate outlier matches, the lower the pickier 
+MATCH_RATIO = 0.71 #This influence how tolerant we will be to discriminate outlier matches, the lower the pickier 
 
-FOLDER_NAME = "data/artificial_data/7/"
+FOLDER_NAME = "data/artificial_data/74/"
 TIMESTAMP = "_20210629-1539"
 
 #Intrinsics of the Kinect with the corresponding last 4 digits ID
@@ -394,6 +395,30 @@ def depth_value_extraction(dmap_list, image_list, pts_list):
 
     return pts_depth, updated_pts
 
+def normalize_uvd(q0, d0, q1, d1, q2, d2, pts, d_pts):
+    nb_views = len(q0)
+
+    q0_n = []
+    d0_n = []
+    q1_n = []
+    d1_n = []
+    q2_n = []
+    d2_n = []
+    pts_n = [[] for i in range(nb_views)]
+    d_pts_n = [[] for i in range(nb_views)]
+
+    for i in range(nb_views):
+        q0_n.append((q0[i][0]/WINDOW_WIDTH, q0[i][1]/WINDOW_WIDTH))
+        d0_n.append(d0[i]/MAX_DEPTH)
+        q1_n.append((q1[i][0]/WINDOW_WIDTH, q1[i][1]/WINDOW_WIDTH))
+        d1_n.append(d1[i]/MAX_DEPTH)
+        q2_n.append((q2[i][0]/WINDOW_WIDTH, q2[i][1]/WINDOW_WIDTH))
+        d2_n.append(d2[i]/MAX_DEPTH)
+        for j, pt in enumerate(pts[i]):
+            pts_n[i].append((pt[0]/WINDOW_WIDTH, pt[1]/WINDOW_WIDTH))
+            d_pts_n[i].append(d_pts[i][j]/MAX_DEPTH)
+
+    return q0_n, d0_n, q1_n, d1_n, q2_n, d2_n, pts_n, d_pts_n
 
 #----------------------------------------------------------------------------------------------
 
@@ -402,7 +427,7 @@ def main():
 
     rgb_cams = []
     depth_cams = []
-    cams_idx = [50,75,100,125,150]
+    cams_idx = range(600,800,25)
     for idx in cams_idx:
         # if i != 2: # keep view 2 for reconstruction
         rgb_cam, depth_cam = load_rgbd2(str(idx))
@@ -412,11 +437,14 @@ def main():
     print("Loaded data in ", time()-start_time, " seconds.")
 
     start_time = time()
-    q0, d0, q1, d1, q2, d2, pts, d_pts = image_points_selection(rgb_cams, depth_cams, by_hand=True)
+    q0, d0, q1, d1, q2, d2, pts, d_pts = image_points_selection(rgb_cams, depth_cams, by_hand=False)
+    pts_px = pts.copy()
+    # Normalize the pixel position and depth to be on a [0,1] scale for a robust optimization
+    q0, d0, q1, d1, q2, d2, pts, d_pts = normalize_uvd(q0, d0, q1, d1, q2, d2, pts, d_pts)
     print("Points selection in ", time()-start_time, " seconds.")
     print(len(pts[0]))
 
-    virtual_cam = 100
+    virtual_cam = 675
     virtual_view = cams_idx.index(virtual_cam)
     print("Reconstructing camera view number ", virtual_cam)
     q0v = q0[virtual_view]
@@ -443,10 +471,10 @@ def main():
     print("Time computing parameters: ", time()-time_start)
 
     vertices = [] # format [u,v,d]
-    error_img_pos = np.empty(0)
-    error_depth = np.empty(0)
-    error_u = np.empty(0)
-    error_v = np.empty(0)
+    error_img_pos = np.zeros(0)
+    error_depth = np.zeros(0)
+    error_u = np.zeros(0)
+    error_v = np.zeros(0)
     results = []
     csts = []
     virtual_pts = []
@@ -464,9 +492,9 @@ def main():
             while ref_view == virtual_view or pts[ref_view][pt_idx] == []:
                 ref_view += 1
             # x0 = np.array([pts[ref_view][i][0], pts[ref_view][i][1], d1[ref_view]/d0[ref_view], d2[ref_view]/d0[ref_view], d_pts[ref_view][i]/d0[ref_view]])
-            # x0 = np.array([pts[ref_view][pt_idx][0], pts[ref_view][pt_idx][1], d_pts[ref_view][pt_idx], 1, 1])
+            x0 = np.array([pts[ref_view][pt_idx][0], pts[ref_view][pt_idx][1], d_pts[ref_view][pt_idx], 1, 1])
             # x0 = np.array([WINDOW_WIDTH//2, WINDOW_HEIGHT//2, .1, .1, .1])
-            x0 = expected
+            # x0 = expected
             # print("Initialization [u, v, g1, g2, g3] = ", x0)
 
             cst = [q0v[0],q0v[1],q1v[0],q1v[1],q2v[0],q2v[1],coeffs[pt_idx], d0[virtual_view], d1[virtual_view], d2[virtual_view]]
@@ -480,6 +508,7 @@ def main():
 
             # Define bounds of the solution space TODO: use max depth value of inputs with security margin
             b = [[0,0,0,-np.inf,-np.inf], [WINDOW_WIDTH,WINDOW_HEIGHT,6000,np.inf,np.inf]]
+            b = [[0,0,0,-np.inf,-np.inf], [1,1,2,np.inf,np.inf]]
             # res = {'x': [0,0,0,0,0], 'fun': 0}
             # res['x'], res['fun'] = minimize_brute_force(x0, cst, b, px_width=30)
             # b = [[x0[0]-100, x0[1]-100, x0[2]-500, 1, 1], [x0[0]+100, x0[1]+100, x0[2]+500, 1, 1]]
@@ -498,22 +527,22 @@ def main():
                 cons.append(u)
             b = Bounds(b[0], b[1], False)
 
-            res = minimize(sum_of_squares_of_F_3var, x0, cst, method='L-BFGS-B', constraints=cons, bounds=b, options={'disp': True})
+            res = minimize(sum_of_squares_of_F_3var_norm_fact, x0, cst, method='Nelder-mead', constraints=cons, bounds=b, options={'disp': True})
             # print(pt_idx, "- ", res["success"])
             if res:
                 u = res["x"][0] 
                 v = res["x"][1]
                 d = res["x"][2]
-                error_img_pos = np.append(error_img_pos, np.linalg.norm(np.array([uv,vv]) - np.array([u,v]), ord=2))
-                error_depth = np.append(error_depth, abs(d_pts[virtual_view][pt_idx] - d))
-                error_u = np.append(error_u, uv-u)
-                error_v = np.append(error_v, vv-v)
+                error_img_pos = np.append(error_img_pos, np.linalg.norm(np.array([uv,vv])*WINDOW_WIDTH - np.array([u,v])*WINDOW_WIDTH, ord=2))
+                error_depth = np.append(error_depth, abs(d_pts[virtual_view][pt_idx]*MAX_DEPTH - d*MAX_DEPTH))
+                error_u = np.append(error_u, (uv-u)*WINDOW_WIDTH)
+                error_v = np.append(error_v, (vv-v)*WINDOW_WIDTH)
                 results.append(res['x'])
-                virtual_pts.append((u,v))
+                virtual_pts.append((u*WINDOW_WIDTH,v*WINDOW_WIDTH))
 
                 print("Expected result: ", expected)
-                print("Initialization: ", x0)
                 print("Solution found: ", res["x"], " / residual being: ", res["fun"])
+                print("Error px: ", error_img_pos[-1])
                 print('--------------------------------------------------')
 
             # if res["fun"] < .001: # or error_norm < 50:
@@ -525,7 +554,7 @@ def main():
             #     print('--------------------------------------------------')
 
     for idx in range(len(error_img_pos)):
-        print("{4}- Point {0} ; Residual error for coeffs: {1} ; Pixel error: {2} ; Depth error: {3}".format(pts[virtual_view][idx], resids[idx], error_img_pos[idx], error_depth[idx], idx))
+        print("{4}- Point {0} ; Residual error for coeffs: {1} ; Pixel error: {2} ; Depth error: {3}".format(pts_px[virtual_view][idx], resids[idx], error_img_pos[idx], error_depth[idx], idx))
 
     print("Time recomputing {} point positions: ".format(len(error_img_pos)), time()-time_start)
     print("Error in pixels for point placement: \nMean: {0} / Max: {1} / Min: {2} / Std: {3}".format(np.mean(error_img_pos),
@@ -545,12 +574,12 @@ def main():
         imgplot2 = plt.imshow(depth_cams[i])
         ax2.set_title("Sensor{}".format(i))
 
-    virtual_img = cv2.circle(virtual_img, q0v, 7, (255,0,0), -1)
-    virtual_img = cv2.circle(virtual_img, q1v, 7, (255,0,0), -1)
-    virtual_img = cv2.circle(virtual_img, q2v, 7, (255,0,0), -1)
+    # virtual_img = cv2.circle(virtual_img, q0v, 7, (255,0,0), -1)
+    # virtual_img = cv2.circle(virtual_img, q1v, 7, (255,0,0), -1)
+    # virtual_img = cv2.circle(virtual_img, q2v, 7, (255,0,0), -1)
     for idx in range(len(virtual_pts)):
         rgb = np.random.rand(3,)*255
-        rgb_cams[virtual_view] = cv2.circle(rgb_cams[virtual_view], pts[virtual_view][idx], 4, rgb, -1)
+        rgb_cams[virtual_view] = cv2.circle(rgb_cams[virtual_view], pts_px[virtual_view][idx], 4, rgb, -1)
         virtual_img = cv2.circle(virtual_img, (int(round(virtual_pts[idx][0])),int(round(virtual_pts[idx][1]))), 4, rgb, -1)
         rgb_cams[virtual_view] = cv2.circle(rgb_cams[virtual_view], (int(round(virtual_pts[idx][0])),int(round(virtual_pts[idx][1]))), 2, rgb-40, -1)
 
@@ -562,9 +591,9 @@ def main():
     imgplot = plt.imshow(virtual_img)
     ax.set_title('Virtual image point placement')
 
-    for i, res in enumerate(results):
-        if i in [0,1,2]:
-            fig = plot_F_squared_around_x(res, csts[i], name="Plots of point {}".format(i))
+    # for i, res in enumerate(results):
+    #     if i in [0,1,2]:
+    #         fig = plot_F_squared_around_x(res, csts[i], name="Plots of point {}".format(i))
         # if error_img_pos[-1] > 1:
         #     fig2 = plot_F_squared_around_x(expected, cst, name="F² around expected solution")
 
