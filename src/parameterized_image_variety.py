@@ -2,7 +2,7 @@ import numpy as np
 from scipy.optimize import minimize, Bounds
 
 class ParameterizedImageVariety():
-    def __init__(self, q0, d0, q1, d1, q2, d2, pts, d_pts, virtual_view, frame_width=1280, frame_height= 720, max_depth= 6000):
+    def __init__(self, q0, d0, q1, d1, q2, d2, pts, d_pts, virtual_view, frame_width=1280, frame_height=720, max_depth=6000, debug=False):
         self.nb_pts = len(pts[0])
         self.q0 = q0
         self.q1 = q1
@@ -20,11 +20,16 @@ class ParameterizedImageVariety():
 
         self.struct_coeffs = []
 
-        self.debug = True
-        if self.debug:
-            self.resids = []
+        self.debug = debug
+        self.resids = []
 
     def get_virtual_pts(self):
+        """
+        Main method of the class.
+        Compute the PIV, create the novel view by placing the 3 ref points and compute the new positions
+        of all the other points of the scene in the novel view.
+        Return the pixel coordinates and the depth of the scene points in the novel view.
+        """
         self.compute_structure_coefficients()
 
         q0v, q1v, q2v, d0v, d1v, d2v = self.create_novel_view()
@@ -34,6 +39,10 @@ class ParameterizedImageVariety():
         return virtual_pts, virtual_d_pts
 
     def create_novel_view(self):
+        """
+        Define the novel view by definig the 3 reference points pixel coordinates and depth.
+        The current method use the ground truth provided with the initialization of the PIV.
+        """
         q0v = self.q0[self.virtual_view]
         q1v = self.q1[self.virtual_view]
         q2v = self.q2[self.virtual_view]
@@ -44,6 +53,9 @@ class ParameterizedImageVariety():
         return q0v, q1v, q2v, d0v, d1v, d2v
 
     def compute_structure_coefficients(self):
+        """
+        For each point in the scene, compute the structure coefficients associated with the PIV.
+        """
         for pt_idx in range(self.nb_pts):
             Kis = []
             for view in range(len(self.pts)):
@@ -56,6 +68,10 @@ class ParameterizedImageVariety():
                 self.resids.append(np.sum(np.matmul(Kis, self.struct_coeffs[-1])**2))
 
     def build_constraints_matrix(self, view, q, d):
+        """
+        Create the constraint matrix K, used to compute the PIV, for a given point position q=(u,v)
+        with measured depth d in the specified view.
+        """
         a = self.d1[view]*self.q1[view][0] - self.d0[view]*self.q0[view][0]
         b = self.d2[view]*self.q2[view][0] - self.d0[view]*self.q0[view][0]
         c = d*q[0] - self.d0[view]*self.q0[view][0]
@@ -75,13 +91,17 @@ class ParameterizedImageVariety():
         ])
 
     def compute_image_positions_in_virtual_view(self, q0v, q1v, q2v, d0v, d1v, d2v):
+        """
+        Using the computed PIV, retrieve the image position and depth of all the scene points
+        in the novel view defined by the corrdinates and depth of the ref points Q0, Q1 and Q2.
+        """
         if self.debug:
             error_img_pos = np.zeros(0)
             error_depth = np.zeros(0)
             error_u = np.zeros(0)
             error_v = np.zeros(0)
             results = []
-            csts = []
+            # csts = []
 
         virtual_pts = []
         virtual_d_pts = []
@@ -103,7 +123,8 @@ class ParameterizedImageVariety():
             # print("Initialization [u, v, g1, g2, g3] = ", x0)
 
             cst = [q0v[0],q0v[1],q1v[0],q1v[1],q2v[0],q2v[1],self.struct_coeffs[pt_idx], d0v, d1v, d2v]
-            csts.append(cst)
+            # if self.debug:
+            #     csts.append(cst)
 
             # Minimize sum of squares to solve the system
 
@@ -121,20 +142,28 @@ class ParameterizedImageVariety():
                 cons.append(u)
             b = Bounds(b[0], b[1], False)
 
-            res = minimize(self.sum_of_squares_of_F, x0, cst, method='Nelder-mead', constraints=cons, bounds=b, options={'disp': True})
+            res = minimize(self.sum_of_squares_of_F, x0, cst, method='Nelder-mead', constraints=cons, bounds=b, options={'disp': self.debug})
 
             if res:
-                u = res["x"][0] 
-                v = res["x"][1]
-                d = res["x"][2]
-                virtual_pts.append((u*self.frame_width,v*self.frame_width))
-                virtual_d_pts.append(d)
+                u = round(res["x"][0] * self.frame_width) 
+                v = round(res["x"][1] * self.frame_width) 
+                d = res["x"][2] * self.max_depth
+                try: # Check if the new point project on the same coordinates as a previous one
+                    occlusion = virtual_pts.index((u,v))
+                    if virtual_d_pts[occlusion] > d: # If the new point is closer to the image plane replace the occluded one
+                        del virtual_pts[occlusion]
+                        del virtual_d_pts[occlusion]
+                        virtual_pts.append((u,v))
+                        virtual_d_pts.append(d)
+                except ValueError:
+                    virtual_pts.append((u,v))
+                    virtual_d_pts.append(d)
 
                 if self.debug:
-                    error_img_pos = np.append(error_img_pos, np.linalg.norm(np.array([uv,vv])*self.frame_width - np.array([u,v])*self.frame_width, ord=2))
-                    error_depth = np.append(error_depth, abs(self.d_pts[self.virtual_view][pt_idx]*self.max_depth - d*self.max_depth))
-                    error_u = np.append(error_u, (uv-u)*self.frame_width)
-                    error_v = np.append(error_v, (vv-v)*self.frame_width)
+                    error_img_pos = np.append(error_img_pos, np.linalg.norm(np.array([uv,vv])*self.frame_width - np.array([res['x'][0],res['x'][1]])*self.frame_width, ord=2))
+                    error_depth = np.append(error_depth, abs(self.d_pts[self.virtual_view][pt_idx]*self.max_depth - d))
+                    error_u = np.append(error_u, (uv-res['x'][0])*self.frame_width)
+                    error_v = np.append(error_v, (vv-res['x'][1])*self.frame_width)
                     results.append(res['x'])
                     print("Expected result: ", expected)
                     print("Solution found: ", res["x"], " / residual being: ", res["fun"])

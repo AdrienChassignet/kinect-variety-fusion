@@ -1,5 +1,5 @@
 import cv2
-import helpers
+import tools
 import numpy as np
 import sys
 
@@ -10,6 +10,19 @@ class CorrespondingPointsSelector():
         self.nb_max_features = 15000
         self.descriptor_ratio = 0.9
         self.depth_neighborhood_radius = 0
+
+    def select_paramters(self, nn_match_ratio=0.7, nb_max_features=15000, descriptor_ratio=0.9, depth_neighborhood_radius=0):
+        """
+        Change parameters of the corresponding point selector.
+        nn_match_ratio: Ratio to discriminate bad matches, the lower the pickier
+        nb_max_features: The maximum number of features that the algorithm will try to find
+        descriptor_ratio: Ratio of the descriptor
+        depth_neighborhood_radius: Radius of the neighborhood taken to retrieve depth of a feature point
+        """
+        self.nn_match_ratio = nn_match_ratio
+        self.nb_max_features = nb_max_features
+        self.descriptor_ratio = descriptor_ratio
+        self.depth_neighborhood_radius = depth_neighborhood_radius
 
     def points_selection(self, rgb_cams, depth_cams):
         """
@@ -153,7 +166,7 @@ class CorrespondingPointsSelector():
             for i in range(len(pts_list)): # Check depth of current point in each view
                 if pts_list[i][idx] != []:
                     (u,v) = pts_list[i][idx]
-                    neighborhood = helpers.get_neighborhood(u, v, self.depth_neighborhood_radius, dmap_list[i])
+                    neighborhood = tools.get_neighborhood(u, v, self.depth_neighborhood_radius, dmap_list[i])
                     nonzero = neighborhood[np.nonzero(neighborhood)]
                     count = len(nonzero)
                     if count > 0: # and (max(nonzero) - min(nonzero)) < 100:
@@ -186,7 +199,7 @@ class CorrespondingPointsSelector():
         deltas = np.array(pts[ref_view]) - centroid
         centroid_idx = pts[ref_view].index(pts[ref_view][np.argmin(np.einsum('ij,ij->i', deltas, deltas))])
 
-        up_hull, low_hull = helpers.convex_hull(pts[ref_view], split=True)
+        up_hull, low_hull = tools.convex_hull(pts[ref_view], split=True)
         # Select first extreme point in a counter-clockwise order in both lower and upper hull
         q1_idx = pts[ref_view].index(low_hull[-1])
         q2_idx = pts[ref_view].index(up_hull[-1])
