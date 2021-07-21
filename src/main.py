@@ -33,7 +33,7 @@ def main():
     # Load the data
     rgb_cams = []
     depth_cams = []
-    cams_idx = range(600,800,25)
+    cams_idx = range(600,725,25)
     for idx in cams_idx:
         # if i != 2: # keep view 2 for reconstruction
         rgb_cam, depth_cam = load_rgbd2(str(idx))
@@ -58,7 +58,7 @@ def main():
     q0, d0, q1, d1, q2, d2, pts, d_pts = tools.normalize_uvd(q0, d0, q1, d1, q2, d2, pts, d_pts, max_px=frame_width, max_d=max_depth)
     norm_t = time()
 
-    virtual_cam = 675
+    virtual_cam = 650
     virtual_view = cams_idx.index(virtual_cam)
 
     # Define and compute the PIV for the current scene to place the scene matched points in the novel view
@@ -66,21 +66,28 @@ def main():
     virtual_pts, virtual_d_pts = piv.get_virtual_pts()
     piv_t = time()
 
-    virtual_pts = tools.concatenate_points(virtual_pts, q0[virtual_view], q1[virtual_view], q2[virtual_view], frame_width)
-    virtual_d_pts = tools.concatenate_depth_points(virtual_d_pts, d0[virtual_view], d1[virtual_view], d2[virtual_view], max_depth)
+    virtual_pts, virtual_d_pts = tools.rescale_and_concatenate_points(virtual_pts, q0[virtual_view], q1[virtual_view], q2[virtual_view],
+                                                                    virtual_d_pts, d0[virtual_view], d1[virtual_view], d2[virtual_view],
+                                                                    depth_cams[virtual_view], max_depth, frame_width, frame_height, rescale=False)
     for view in range(len(rgb_cams)):
-        pts[view] = tools.concatenate_points(pts[view], q0[view], q1[view], q2[view], frame_width)
-        d_pts[view] = tools.concatenate_depth_points(d_pts[view], d0[view], d1[view], d2[view], max_depth)
+            pts[view], d_pts[view] = tools.rescale_and_concatenate_points(pts[view], q0[view], q1[view], q2[view],
+                                                                         d_pts[view], d0[view], d1[view], d2[view],
+                                                                         depth_cams[view], max_depth, frame_width, frame_height)
 
     print("Loading time: ", load_t - start_t)
     print("Point selection time: ", select_t - load_t)
     print("Normalization time: ", norm_t - visu_t)
     print("PIV computation and reconstruction time: ", piv_t - norm_t)
     print("Total time: ", (piv_t - visu_t) + (select_t - start_t))
-    # Visualize the results
     if VISUALIZE:
         fig2 = visualization.plot_point_placement_results(rgb_cams[virtual_view], virtual_pts, pts_px[virtual_view], frame_height, frame_width)
         plt.show()
+
+    # Remove GT to properly test the texture mapping
+    del pts[virtual_view]
+    del d_pts[virtual_view]
+    del rgb_cams[virtual_view]
+    del depth_cams[virtual_view]
 
     text_map = TextureMapping()
     new_img = text_map.create_novel_view_image(virtual_pts, virtual_d_pts, pts, d_pts, rgb_cams, depth_cams)

@@ -199,6 +199,11 @@ class CorrespondingPointsSelector():
         deltas = np.array(pts[ref_view]) - centroid
         centroid_idx = pts[ref_view].index(pts[ref_view][np.argmin(np.einsum('ij,ij->i', deltas, deltas))])
 
+        # NOTE: Here we compute the convex hull with a custom algorithm but later in the pipeline we
+        # perform a Delaunay triangulation using the Scipy library. In this triangulation we can easily
+        # have access to the convex hull. Thus one optimization might be to already create the triangulation
+        # here as it will give us the convex hull and will be useful for the next steps.
+        
         up_hull, low_hull = tools.convex_hull(pts[ref_view], split=True)
         # Select first extreme point in a counter-clockwise order in both lower and upper hull
         q1_idx = pts[ref_view].index(low_hull[-1])

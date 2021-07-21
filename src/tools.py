@@ -107,17 +107,42 @@ def normalize_uvd(q0, d0, q1, d1, q2, d2, pts, d_pts, max_px, max_d):
 
     return q0_n, d0_n, q1_n, d1_n, q2_n, d2_n, pts_n, d_pts_n
 
-def concatenate_points(pts, q0, q1, q2, frame_width):
-    # new_pts = [tuple(map(round, tup)) for tup in pts]
-    new_pts = pts.copy()
+def rescale_and_concatenate_points(pts, q0, q1, q2, d_pts, d0, d1, d2, dmap, max_d, frame_width, frame_height, rescale=True):
+    if rescale:
+        new_pts = []
+        for pt in pts:
+            new_pts.append((round(pt[0]*frame_width), round(pt[1]*frame_width)))
+        new_d_pts = [d_pt*max_d for d_pt in d_pts]
+    else:
+        new_pts = pts.copy()
+        new_d_pts = d_pts.copy()
     new_pts.append((round(q0[0]*frame_width), round(q0[1]*frame_width)))
     new_pts.append((round(q1[0]*frame_width), round(q1[1]*frame_width)))
     new_pts.append((round(q2[0]*frame_width), round(q2[1]*frame_width)))
-    return new_pts
-
-def concatenate_depth_points(d_pts, d0, d1, d2, max_d):
-    new_d_pts = d_pts.copy()
     new_d_pts.append(d0*max_d)
     new_d_pts.append(d1*max_d)
     new_d_pts.append(d2*max_d)
-    return new_d_pts
+
+    corners = [(0, 0), (0, frame_height-1), (frame_width-1, 0), (frame_width-1, frame_height-1)]
+    new_pts += corners
+    #TODO: check if there is a valid depth value here otherwise use the max depth in the frame
+    new_d_pts += [max_d, max_d, max_d, max_d]
+
+    return new_pts, new_d_pts
+
+def get_barycentric_coordinates(A, B, C, P):
+    """
+    A, B and C are the vertex of the triangle and P is the point we want to express
+    in function of these vertices.
+    The four points are given as a tuple (x,y) of the pixel coordinates in the frame.
+    """
+    u=0
+    v=0
+    w=0
+    return u, v, w
+
+class ProjectedPixel():
+    def __init__(self, pixel, view, depth):
+        self.pixel = pixel
+        self.view = view
+        self.depth = depth
