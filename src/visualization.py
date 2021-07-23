@@ -2,35 +2,38 @@ import cv2
 from matplotlib import pyplot as plt
 import numpy as np
 from fp_piv import F, F_3var
+import copy
 
 def plot_triangulation(rgb_frame, pts, vertices):
     thickness = 1
     color = (255,0,0)
+    frame = copy.deepcopy(rgb_frame)
     for i in range(0, len(vertices), 3):
-        rgb_frame = cv2.line(rgb_frame, pts[vertices[i]], pts[vertices[i+1]], color, thickness)
-        rgb_frame = cv2.line(rgb_frame, pts[vertices[i+1]], pts[vertices[i+2]], color, thickness)
-        rgb_frame = cv2.line(rgb_frame, pts[vertices[i+2]], pts[vertices[i]], color, thickness)
+        frame = cv2.line(frame, pts[vertices[i]], pts[vertices[i+1]], color, thickness)
+        frame = cv2.line(frame, pts[vertices[i+1]], pts[vertices[i+2]], color, thickness)
+        frame = cv2.line(frame, pts[vertices[i+2]], pts[vertices[i]], color, thickness)
 
     fig = plt.figure("Delaunay triangulation")
-    plt.imshow(rgb_frame)
+    plt.imshow(frame)
 
     return fig
 
 def plot_matched_features(rgb_cams, pts, q0, q1, q2, name="Matched features"):
     rad = 2
+    rgb_cams_cp = copy.deepcopy(rgb_cams)
     for idx in range(len(pts[0])):
         rgb = np.random.rand(3,)*255
         for i in range(len(rgb_cams)):
-            rgb_cams[i] = cv2.circle(rgb_cams[i], pts[i][idx], rad, rgb, -1)
+            rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], pts[i][idx], rad, rgb, -1)
             if idx == 0:
-                rgb_cams[i] = cv2.circle(rgb_cams[i], q0[i], rad, (255,0,0), -1)
-                rgb_cams[i] = cv2.circle(rgb_cams[i], q1[i], rad, (255,0,0), -1)
-                rgb_cams[i] = cv2.circle(rgb_cams[i], q2[i], rad, (255,0,0), -1)
+                rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], q0[i], rad, (255,0,0), -1)
+                rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], q1[i], rad, (255,0,0), -1)
+                rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], q2[i], rad, (255,0,0), -1)
 
-    fig = plt.figure("Matched features")
-    for i in range(len(rgb_cams)):
-        ax = fig.add_subplot((len(rgb_cams)+2)//3, 3, i+1)
-        imgplot = plt.imshow(rgb_cams[i])
+    fig = plt.figure(name)
+    for i in range(len(rgb_cams_cp)):
+        ax = fig.add_subplot((len(rgb_cams_cp)+2)//3, 3, i+1)
+        imgplot = plt.imshow(rgb_cams_cp[i])
         ax.set_title('Cam{}'.format(i))
 
     return fig
@@ -40,20 +43,21 @@ def plot_point_placement_results(rgb_frame, pts, pts_gt, frame_height, frame_wid
     # virtual_img = cv2.circle(virtual_img, q0v, 7, (255,0,0), -1)
     # virtual_img = cv2.circle(virtual_img, q1v, 7, (255,0,0), -1)
     # virtual_img = cv2.circle(virtual_img, q2v, 7, (255,0,0), -1)
+    frame = rgb_frame.copy()
     for idx in range(len(pts_gt)+3):
         if idx < len(pts_gt):
             rgb = np.random.rand(3,)*255
-            rgb_frame = cv2.circle(rgb_frame, pts_gt[idx], 4, rgb, -1)
+            frame = cv2.circle(rgb_frame, pts_gt[idx], 4, rgb, -1)
             virtual_img = cv2.circle(virtual_img, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 3, rgb, -1)
-            rgb_frame = cv2.circle(rgb_frame, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 2, rgb-40, -1)
+            frame = cv2.circle(rgb_frame, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 2, rgb-40, -1)
         else: #Plot the ref points
             virtual_img = cv2.circle(virtual_img, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 3, (255,0,0), -1)
-            rgb_frame = cv2.circle(rgb_frame, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 3, (255,0,0), -1)
+            frame = cv2.circle(rgb_frame, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 3, (255,0,0), -1)
 
 
     fig = plt.figure("Result")
     ax = fig.add_subplot(1, 2, 1)
-    imgplot = plt.imshow(rgb_frame)
+    imgplot = plt.imshow(frame)
     ax.set_title('Ground truth view')
     ax = fig.add_subplot(1, 2, 2)
     imgplot = plt.imshow(virtual_img)

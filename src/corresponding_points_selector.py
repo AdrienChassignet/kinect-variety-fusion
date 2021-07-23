@@ -209,6 +209,8 @@ class CorrespondingPointsSelector():
         q1_idx = pts[ref_view].index(low_hull[-1])
         q2_idx = pts[ref_view].index(up_hull[-1])
         # TODO: noncollinearity check!
+        if tools.collinear(pts[ref_view][centroid_idx], pts[ref_view][q1_idx], pts[ref_view][q2_idx]):
+            print("WARNING! The 3 reference points Q0, Q1 and Q2 are colinear!")
 
         q0 = []
         d0 = []

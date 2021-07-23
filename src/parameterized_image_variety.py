@@ -114,7 +114,7 @@ class ParameterizedImageVariety():
             expected = np.array([uv, vv, self.d_pts[self.virtual_view][pt_idx], 1, 1])
             
             # Start the search from a close position in a reference view
-            ref_view = self.virtual_view+1
+            ref_view = 0 # self.virtual_view+1
             while ref_view == self.virtual_view or self.pts[ref_view][pt_idx] == []:
                 ref_view += 1
 
@@ -165,10 +165,10 @@ class ParameterizedImageVariety():
                     error_u = np.append(error_u, (uv-res['x'][0])*self.frame_width)
                     error_v = np.append(error_v, (vv-res['x'][1])*self.frame_width)
                     results.append(res['x'])
-                    print("Expected result: ", expected)
-                    print("Solution found: ", res["x"], " / residual being: ", res["fun"])
-                    print("Error px: ", error_img_pos[-1])
-                    print('--------------------------------------------------')
+                #     print("Expected result: ", expected)
+                #     print("Solution found: ", res["x"], " / residual being: ", res["fun"])
+                #     print("Error px: ", error_img_pos[-1])
+                #     print('--------------------------------------------------')
                     
 
         if self.debug:

@@ -8,9 +8,10 @@ import visualization
 from corresponding_points_selector import CorrespondingPointsSelector
 from parameterized_image_variety import ParameterizedImageVariety
 from texture_mapping import TextureMapping
+import box_pts_by_hand
 
-FOLDER_NAME = "data/artificial_data/74/"
-TIMESTAMP = "_20210629-1539"
+FOLDER_NAME = "data/Tx55cm/" #"data/artificial_data/bathroom/"
+TIMESTAMP = "" #"_20210629-1539"
 
 VISUALIZE = True
 
@@ -33,10 +34,10 @@ def main():
     # Load the data
     rgb_cams = []
     depth_cams = []
-    cams_idx = range(600,725,25)
+    cams_idx = range(0,2,1)
     for idx in cams_idx:
         # if i != 2: # keep view 2 for reconstruction
-        rgb_cam, depth_cam = load_rgbd2(str(idx))
+        rgb_cam, depth_cam = load_rgbd(str(idx))
         rgb_cams.append(rgb_cam)
         depth_cams.append(depth_cam)
     frame_height, frame_width, _ = np.shape(rgb_cams[0])
@@ -45,7 +46,9 @@ def main():
 
     # Extract corresponding points accross the view and the select 3 reference points
     ptSelector = CorrespondingPointsSelector()
+    ptSelector.select_paramters(nn_match_ratio=.75, depth_neighborhood_radius=3)
     q0, d0, q1, d1, q2, d2, pts, d_pts = ptSelector.points_selection(rgb_cams, depth_cams)
+    # q0, d0, q1, d1, q2, d2, pts, d_pts = box_pts_by_hand.get_pts(depth_cams)
     select_t = time()
 
     if VISUALIZE:
@@ -58,11 +61,11 @@ def main():
     q0, d0, q1, d1, q2, d2, pts, d_pts = tools.normalize_uvd(q0, d0, q1, d1, q2, d2, pts, d_pts, max_px=frame_width, max_d=max_depth)
     norm_t = time()
 
-    virtual_cam = 650
+    virtual_cam = 1
     virtual_view = cams_idx.index(virtual_cam)
 
     # Define and compute the PIV for the current scene to place the scene matched points in the novel view
-    piv = ParameterizedImageVariety(q0, d0, q1, d1, q2, d2, pts, d_pts, virtual_view, frame_width, frame_height, max_depth, debug=False)
+    piv = ParameterizedImageVariety(q0, d0, q1, d1, q2, d2, pts, d_pts, virtual_view, frame_width, frame_height, max_depth, debug=True)
     virtual_pts, virtual_d_pts = piv.get_virtual_pts()
     piv_t = time()
 
@@ -81,16 +84,24 @@ def main():
     print("Total time: ", (piv_t - visu_t) + (select_t - start_t))
     if VISUALIZE:
         fig2 = visualization.plot_point_placement_results(rgb_cams[virtual_view], virtual_pts, pts_px[virtual_view], frame_height, frame_width)
-        plt.show()
+        # plt.show()
 
     # Remove GT to properly test the texture mapping
+    gt_pts = pts[virtual_view].copy()
+    gt_d_pts = d_pts[virtual_view].copy()
     del pts[virtual_view]
     del d_pts[virtual_view]
     del rgb_cams[virtual_view]
     del depth_cams[virtual_view]
 
+    textmap_t = time()
     text_map = TextureMapping()
-    new_img = text_map.create_novel_view_image(virtual_pts, virtual_d_pts, pts, d_pts, rgb_cams, depth_cams)
+    # new_img = text_map.create_novel_view_image(virtual_pts, virtual_d_pts, pts, d_pts, rgb_cams, depth_cams)
+    new_img = text_map.create_novel_view_image(gt_pts, gt_d_pts, pts, d_pts, rgb_cams, depth_cams)
+    print("Texture mapping time: ", time() - textmap_t)
+    fig3 = plt.figure("Texture mapping result")
+    plt.imshow(new_img)
+    plt.show()
 
 if __name__ == "__main__":
     main()

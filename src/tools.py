@@ -136,13 +136,19 @@ def get_barycentric_coordinates(A, B, C, P):
     in function of these vertices.
     The four points are given as a tuple (x,y) of the pixel coordinates in the frame.
     """
-    u=0
-    v=0
-    w=0
+    v0 = (B[0]-A[0], B[1]-A[1])
+    v1 = (C[0]-A[0], C[1]-A[1])
+    v2 = (P[0]-A[0], P[1]-A[1])
+    d00 = np.dot(v0, v0)
+    d01 = np.dot(v0, v1)
+    d11 = np.dot(v1, v1)
+    d20 = np.dot(v2, v0)
+    d21 = np.dot(v2, v1)
+    denom = d00 * d11 - d01 * d01
+    v = (d11 * d20 - d01 * d21) / denom
+    w = (d00 * d21 - d01 * d20) / denom
+    u = 1. - v - w
     return u, v, w
 
-class ProjectedPixel():
-    def __init__(self, pixel, view, depth):
-        self.pixel = pixel
-        self.view = view
-        self.depth = depth
+def collinear(p1, p2, p3):
+    return ((p3[1] - p2[1])*(p2[0] - p1[0]) == (p2[1] - p1[1])*(p3[0] - p2[0]))
