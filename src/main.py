@@ -10,8 +10,8 @@ from parameterized_image_variety import ParameterizedImageVariety
 from texture_mapping import TextureMapping
 import box_pts_by_hand
 
-FOLDER_NAME = "data/Tx55cm/" #"data/artificial_data/bathroom/"
-TIMESTAMP = "" #"_20210629-1539"
+FOLDER_NAME = "data/pillows_smallB/" #"data/artificial_data/bathroom/"
+TIMESTAMP = "_20210629-1539"
 
 VISUALIZE = True
 
@@ -34,7 +34,7 @@ def main():
     # Load the data
     rgb_cams = []
     depth_cams = []
-    cams_idx = range(0,2,1)
+    cams_idx = range(2,7,1)
     for idx in cams_idx:
         # if i != 2: # keep view 2 for reconstruction
         rgb_cam, depth_cam = load_rgbd(str(idx))
@@ -46,7 +46,7 @@ def main():
 
     # Extract corresponding points accross the view and the select 3 reference points
     ptSelector = CorrespondingPointsSelector()
-    ptSelector.select_paramters(nn_match_ratio=.75, depth_neighborhood_radius=3)
+    ptSelector.select_paramters(nn_match_ratio=.55, depth_neighborhood_radius=2)
     q0, d0, q1, d1, q2, d2, pts, d_pts = ptSelector.points_selection(rgb_cams, depth_cams)
     # q0, d0, q1, d1, q2, d2, pts, d_pts = box_pts_by_hand.get_pts(depth_cams)
     select_t = time()
@@ -61,7 +61,7 @@ def main():
     q0, d0, q1, d1, q2, d2, pts, d_pts = tools.normalize_uvd(q0, d0, q1, d1, q2, d2, pts, d_pts, max_px=frame_width, max_d=max_depth)
     norm_t = time()
 
-    virtual_cam = 1
+    virtual_cam = 4
     virtual_view = cams_idx.index(virtual_cam)
 
     # Define and compute the PIV for the current scene to place the scene matched points in the novel view
@@ -96,8 +96,8 @@ def main():
 
     textmap_t = time()
     text_map = TextureMapping()
-    # new_img = text_map.create_novel_view_image(virtual_pts, virtual_d_pts, pts, d_pts, rgb_cams, depth_cams)
-    new_img = text_map.create_novel_view_image(gt_pts, gt_d_pts, pts, d_pts, rgb_cams, depth_cams)
+    new_img = text_map.create_novel_view_image(virtual_pts, virtual_d_pts, pts, d_pts, rgb_cams, depth_cams)
+    # new_img = text_map.create_novel_view_image(gt_pts, gt_d_pts, pts, d_pts, rgb_cams, depth_cams)
     print("Texture mapping time: ", time() - textmap_t)
     fig3 = plt.figure("Texture mapping result")
     plt.imshow(new_img)

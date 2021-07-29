@@ -4,6 +4,8 @@ from scipy.spatial import Delaunay
 import tools
 import visualization
 
+import cv2
+
 from delaunator import Delaunator
 
 class ProjectedPixel():
@@ -220,12 +222,22 @@ class TextureMapping():
 
         sorting_idx = self.triangles_z_buffering(triangles[-1], new_d_pts)
 
+        frame = 255 * np.ones([self.frame_height, self.frame_width, 3], dtype=np.uint8)
+
         projected_pixels = np.empty((self.frame_height, self.frame_width), dtype=object)
         tri_nv = triangles[-1]
         # Go through all the triangles of the novel view in a descending depth order
         for tri_idx in sorting_idx:
+            rgb = np.random.rand(3,)*255
+
             t_v = tri_nv.simplices[tri_idx]
             vertices_v = np.array([tri_nv.points[t_v[0]], tri_nv.points[t_v[1]], tri_nv.points[t_v[2]]])
+            vertices_ref_v = np.array([ref_triangles[-1].points[ref_triangles[-1].simplices[0][0]], 
+                                        ref_triangles[-1].points[ref_triangles[-1].simplices[0][1]],
+                                        ref_triangles[-1].points[ref_triangles[-1].simplices[0][2]]])     
+            b_ref = ref_triangles[-1].transform[0,:2].dot(np.transpose(vertices_v[0] - ref_triangles[-1].transform[0,2]))
+            b_coord_ref = [b_ref[0], b_ref[1], 1 - b_ref.sum(axis=0)]
+
             min_u = int(vertices_v[:,0].min())
             max_u = int(vertices_v[:,0].max())
             min_v = int(vertices_v[:,1].min())
@@ -233,10 +245,16 @@ class TextureMapping():
             for u in range(min_u, max_u+1):
                 for v in range(min_v, max_v+1):
                     # Compute barycentric coordinates
-                    b = tri_nv.transform[tri_idx,:2].dot(np.transpose((u,v) - tri_nv.transform[tri_idx,2]))
-                    b_coord = [b[0], b[1], 1 - b.sum(axis=0)]
-                    if all(n>=0 for n in b_coord): # The pixel (u,v) is within the currently processed triangle
-                        for view in range(len(triangles) - 1):
+                    px_b = tri_nv.transform[tri_idx,:2].dot(np.transpose((u,v) - tri_nv.transform[tri_idx,2]))
+                    px_b_coord = [px_b[0], px_b[1], 1 - px_b.sum(axis=0)]
+                    if all(n>=0 for n in px_b_coord): # The pixel (u,v) is within the currently processed triangle
+                        # Get the position of point r in ref view (r is the intersection between the reference triangle and
+                        # the ray passing through the mapped point from the current triangle)
+                        # NOTE: use the ref_triangles[-1] to get barycentric coordinates of r
+                        r_b = ref_triangles[-1].transform[0,:2].dot(np.transpose((u,v) - ref_triangles[-1].transform[0,2]))
+                        r_b_coord = [r_b[0], r_b[1], 1 - r_b.sum(axis=0)]
+                        # for view in range(len(triangles) - 1):
+                        for view in [2]:
                             # Get corresponding triangle in processed input view
                             t_i = t_v
                             # cor_idx = np.where((triangles[view].simplices == t_v).all(axis=1))[0]
@@ -244,14 +262,31 @@ class TextureMapping():
                             #     cor_idx = cor_idx[0]
                             #     t_i = triangles[view].simplices[cor_idx]
                             vertices_i = np.array([triangles[view].points[t_i[0]], triangles[view].points[t_i[1]], triangles[view].points[t_i[2]]])
-                            #     vertices_ref = np.array([ref_triangles[view].points[ref_triangles[view].simplices[0][0]], 
-                            #                             ref_triangles[view].points[ref_triangles[view].simplices[0][1]],
-                            #                             ref_triangles[view].points[ref_triangles[view].simplices[0][2]]])
+                            vertices_ref_i = np.array([ref_triangles[view].points[ref_triangles[view].simplices[0][0]], 
+                                                    ref_triangles[view].points[ref_triangles[view].simplices[0][1]],
+                                                    ref_triangles[view].points[ref_triangles[view].simplices[0][2]]])
                             # Find from which pixel the current (u,v) might have been projected
-                            px_back_proj = tuple(np.matmul(vertices_i.transpose(), b_coord).round().astype('int'))
+                            px_back_proj = tuple(np.matmul(vertices_i.transpose(), px_b_coord).round().astype('int'))
+                            # Compute the 'depth' value (aka pr_bar)
+                            r_back_proj = tuple(np.matmul(vertices_ref_i.transpose(), r_b_coord).round().astype('int'))
+
+                            pr = (r_back_proj[0]-px_back_proj[0], r_back_proj[1]-px_back_proj[1])
+                            dist_pr = np.linalg.norm(pr, ord=2)
+                            
                             # NOTE: maybe here we could store the sub_pixel position in input view
                             # to do a weigthed RGB mapping from the 4 neighbors pixels or bilinear interpolation
-                            projected_pixels[v,u] = ProjectedPixel(px_back_proj, view, 0)
+                            if projected_pixels[v,u] == None or projected_pixels[v,u].depth < dist_pr:
+                                # tmp = projected_pixels[v,u].pixel
+                                # frame = cv2.circle(frame, tmp, 2, (0,255,0), -1)
+                                # frame = cv2.circle(frame, px_back_proj, 2, (0,0,255), -1)
+                                # frame = cv2.circle(frame, r_back_proj, 2, (255,0,0), -1)
+                                # frame = cv2.line(frame, px_back_proj, r_back_proj, rgb, 1)
+                                # frame = cv2.line(frame, tmp, r_back_proj, rgb, 1)
+                                projected_pixels[v,u] = ProjectedPixel(px_back_proj, view, dist_pr)
+
+        # fig = plt.figure("Epipolar lines")
+        # plt.imshow(frame)
+        # plt.show()
 
         return projected_pixels
 

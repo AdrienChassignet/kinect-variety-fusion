@@ -1,5 +1,6 @@
 import cv2
 import tools
+import mediapipe as mp
 import numpy as np
 import sys
 
@@ -10,6 +11,8 @@ class CorrespondingPointsSelector():
         self.nb_max_features = 15000
         self.descriptor_ratio = 0.9
         self.depth_neighborhood_radius = 0
+
+        self.mp_holistic = mp.solutions.holistic
 
     def select_paramters(self, nn_match_ratio=0.7, nb_max_features=15000, descriptor_ratio=0.9, depth_neighborhood_radius=0):
         """
@@ -41,6 +44,7 @@ class CorrespondingPointsSelector():
 
         pts = self.matched_points_extraction(rgb_cams)
         pts = self.common_points_extraction(pts)
+        # pts = self.get_human_landmarks(rgb_cams, pts)
 
         m = len(pts[0])
         if m < 4:
@@ -166,7 +170,7 @@ class CorrespondingPointsSelector():
             for i in range(len(pts_list)): # Check depth of current point in each view
                 if pts_list[i][idx] != []:
                     (u,v) = pts_list[i][idx]
-                    neighborhood = tools.get_neighborhood(u, v, self.depth_neighborhood_radius, dmap_list[i])
+                    neighborhood = tools.get_neighborhood(round(u), round(v), self.depth_neighborhood_radius, dmap_list[i])
                     nonzero = neighborhood[np.nonzero(neighborhood)]
                     count = len(nonzero)
                     if count > 0: # and (max(nonzero) - min(nonzero)) < 100:
@@ -233,3 +237,18 @@ class CorrespondingPointsSelector():
                 del d_pts[i][idx]
 
         return q0, q1, q2, d0, d1, d2, pts, d_pts
+
+    def get_human_landmarks(self, rgb_cams, pts):
+        """
+        Use mediapipe package to detect facial, hands and pose landmarks.
+        Use these landmarks as correspondence features across the views.
+        """
+        with self.mp_holistic.Holistic(
+            min_detection_confidence=0.6,
+            static_image_mode=True) as holistic:
+            for idx, image in enumerate(rgb_cams):
+                image_height, image_width, _ = image.shape
+                # Convert the BGR image to RGB before processing.
+                results = holistic.process(image)
+                pts[idx] += [(ld.x*image_width, ld.y*image_height) for ld in results.face_landmarks.landmark]
+        return pts

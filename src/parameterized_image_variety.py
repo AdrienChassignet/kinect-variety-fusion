@@ -142,7 +142,7 @@ class ParameterizedImageVariety():
                 cons.append(u)
             b = Bounds(b[0], b[1], False)
 
-            res = minimize(self.sum_of_squares_of_F, x0, cst, method='Nelder-mead', constraints=cons, bounds=b, options={'disp': self.debug})
+            res = minimize(self.sum_of_squares_of_F, x0, cst, method='Nelder-mead', constraints=cons, bounds=b, options={'disp': self.debug, 'xatol': 0.000001, 'fatol': 0.000001})
 
             if res:
                 u = round(res["x"][0] * self.frame_width) 
