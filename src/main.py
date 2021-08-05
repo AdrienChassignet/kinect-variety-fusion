@@ -10,10 +10,17 @@ from parameterized_image_variety import ParameterizedImageVariety
 from texture_mapping import TextureMapping
 import box_pts_by_hand
 
-FOLDER_NAME = "data/pillows_smallB/" #"data/artificial_data/bathroom/"
+FOLDER_NAME = "data/frames/" #"data/pillows_smallB/" #"data/artificial_data/bathroom/"
 TIMESTAMP = "_20210629-1539"
 
 VISUALIZE = True
+
+def load_rgbd3(idx):
+    rgb_cam = cv2.imread(FOLDER_NAME+idx+".jpg", cv2.IMREAD_COLOR)
+    rgb_cam = cv2.cvtColor(rgb_cam, cv2.COLOR_BGR2RGB)
+    depth_cam = np.load(FOLDER_NAME+idx+".npy")
+
+    return rgb_cam, depth_cam
 
 def load_rgbd2(idx):
     rgb_cam = cv2.imread(FOLDER_NAME+"photo/"+idx+".jpg", cv2.IMREAD_COLOR)
@@ -34,10 +41,10 @@ def main():
     # Load the data
     rgb_cams = []
     depth_cams = []
-    cams_idx = range(2,7,1)
+    cams_idx = [40, 140, 240 ,340 ,440]
     for idx in cams_idx:
         # if i != 2: # keep view 2 for reconstruction
-        rgb_cam, depth_cam = load_rgbd(str(idx))
+        rgb_cam, depth_cam = load_rgbd3(str(idx))
         rgb_cams.append(rgb_cam)
         depth_cams.append(depth_cam)
     frame_height, frame_width, _ = np.shape(rgb_cams[0])
@@ -46,7 +53,7 @@ def main():
 
     # Extract corresponding points accross the view and the select 3 reference points
     ptSelector = CorrespondingPointsSelector()
-    ptSelector.select_paramters(nn_match_ratio=.55, depth_neighborhood_radius=2)
+    ptSelector.select_paramters(nn_match_ratio=.8, depth_neighborhood_radius=2)
     q0, d0, q1, d1, q2, d2, pts, d_pts = ptSelector.points_selection(rgb_cams, depth_cams)
     # q0, d0, q1, d1, q2, d2, pts, d_pts = box_pts_by_hand.get_pts(depth_cams)
     select_t = time()
@@ -61,7 +68,7 @@ def main():
     q0, d0, q1, d1, q2, d2, pts, d_pts = tools.normalize_uvd(q0, d0, q1, d1, q2, d2, pts, d_pts, max_px=frame_width, max_d=max_depth)
     norm_t = time()
 
-    virtual_cam = 4
+    virtual_cam = 40
     virtual_view = cams_idx.index(virtual_cam)
 
     # Define and compute the PIV for the current scene to place the scene matched points in the novel view

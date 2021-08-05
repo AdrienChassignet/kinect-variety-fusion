@@ -44,7 +44,7 @@ class CorrespondingPointsSelector():
 
         pts = self.matched_points_extraction(rgb_cams)
         pts = self.common_points_extraction(pts)
-        # pts = self.get_human_landmarks(rgb_cams, pts)
+        pts = self.get_human_landmarks(rgb_cams, pts)
 
         m = len(pts[0])
         if m < 4:

@@ -5,6 +5,7 @@ import tools
 import visualization
 
 import cv2
+import math
 
 from delaunator import Delaunator
 
@@ -238,10 +239,10 @@ class TextureMapping():
             b_ref = ref_triangles[-1].transform[0,:2].dot(np.transpose(vertices_v[0] - ref_triangles[-1].transform[0,2]))
             b_coord_ref = [b_ref[0], b_ref[1], 1 - b_ref.sum(axis=0)]
 
-            min_u = int(vertices_v[:,0].min())
-            max_u = int(vertices_v[:,0].max())
-            min_v = int(vertices_v[:,1].min())
-            max_v = int(vertices_v[:,1].max())
+            min_u = max(0, int(vertices_v[:,0].min()))
+            max_u = min(self.frame_width, int(vertices_v[:,0].max()))
+            min_v = max(0, int(vertices_v[:,1].min()))
+            max_v = min(self.frame_height, int(vertices_v[:,1].max()))
             for u in range(min_u, max_u+1):
                 for v in range(min_v, max_v+1):
                     # Compute barycentric coordinates
@@ -266,7 +267,7 @@ class TextureMapping():
                                                     ref_triangles[view].points[ref_triangles[view].simplices[0][1]],
                                                     ref_triangles[view].points[ref_triangles[view].simplices[0][2]]])
                             # Find from which pixel the current (u,v) might have been projected
-                            px_back_proj = tuple(np.matmul(vertices_i.transpose(), px_b_coord).round().astype('int'))
+                            px_back_proj = tuple(np.matmul(vertices_i.transpose(), px_b_coord))
                             # Compute the 'depth' value (aka pr_bar)
                             r_back_proj = tuple(np.matmul(vertices_ref_i.transpose(), r_b_coord).round().astype('int'))
 
@@ -336,7 +337,29 @@ class TextureMapping():
             for u in range(self.frame_width):
                 proj_px = projected_pixels[v][u]
                 if proj_px != None:
-                    new_img[v][u] = rgb_cams[proj_px.view][proj_px.pixel[::-1]]
+                    proj_u = round(proj_px.pixel[0], 3)
+                    low_u = int(math.floor(proj_u))
+                    ratio_u = 1 - (proj_u - low_u)
+                    proj_v = round(proj_px.pixel[1], 3)
+                    low_v = int(math.floor(proj_v))
+                    ratio_v = 1 - (proj_v - low_v)
+                    rgb_cam = rgb_cams[proj_px.view]
+                    # new_img[v][u] = rgb_cams[proj_px.view][proj_px.pixel[::-1]]
+                    if low_u == self.frame_width - 1:
+                        if low_v == self.frame_height - 1:
+                            new_img[v][u] = rgb_cam[low_v][low_u]
+                        else:
+                            new_img[v][u] = ratio_v * rgb_cam[low_v][low_u] + (1-ratio_v) * rgb_cam[low_v+1][low_u]
+                    else:
+                        if low_v == self.frame_height - 1:
+                            new_img[v][u] = ratio_u * rgb_cam[low_v][low_u] + (1-ratio_u) * rgb_cam[low_v][low_u+1]
+                        else:
+                            new_img[v][u] = ratio_u * ratio_v * rgb_cam[low_v][low_u] \
+                                            + (1-ratio_u) * ratio_v * rgb_cam[low_v][low_u+1] \
+                                            + ratio_u * (1-ratio_v) * rgb_cam[low_v+1][low_u] \
+                                            + (1-ratio_u) * (1-ratio_v) * rgb_cam[low_v+1][low_u+1]
+                else:
+                    pass #Complete black pixels by averaging neighborhood?
 
         return new_img               
                                 

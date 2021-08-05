@@ -24,11 +24,15 @@ def plot_matched_features(rgb_cams, pts, q0, q1, q2, name="Matched features"):
     for idx in range(len(pts[0])):
         rgb = np.random.rand(3,)*255
         for i in range(len(rgb_cams)):
-            rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], pts[i][idx], rad, rgb, -1)
+            c = (round(pts[i][idx][0]), round(pts[i][idx][1]))
+            rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], c, rad, rgb, -1)
             if idx == 0:
-                rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], q0[i], rad, (255,0,0), -1)
-                rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], q1[i], rad, (255,0,0), -1)
-                rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], q2[i], rad, (255,0,0), -1)
+                c0 = (round(q0[i][0]), round(q0[i][1]))
+                c1 = (round(q1[i][0]), round(q1[i][1]))
+                c2 = (round(q2[i][0]), round(q2[i][1]))
+                rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], c0, rad, (255,0,0), -1)
+                rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], c1, rad, (255,0,0), -1)
+                rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], c2, rad, (255,0,0), -1)
 
     fig = plt.figure(name)
     for i in range(len(rgb_cams_cp)):
@@ -44,10 +48,11 @@ def plot_point_placement_results(rgb_frame, pts, pts_gt, frame_height, frame_wid
     # virtual_img = cv2.circle(virtual_img, q1v, 7, (255,0,0), -1)
     # virtual_img = cv2.circle(virtual_img, q2v, 7, (255,0,0), -1)
     frame = rgb_frame.copy()
-    for idx in range(len(pts_gt)+3):
-        if idx < len(pts_gt):
+    for idx in range(len(pts)-1):#+3
+        if idx < len(pts):
             rgb = np.random.rand(3,)*255
-            frame = cv2.circle(rgb_frame, pts_gt[idx], 4, rgb, -1)
+            c = (round(pts_gt[idx][0]), round(pts_gt[idx][1]))
+            frame = cv2.circle(rgb_frame, c, 4, rgb, -1)
             virtual_img = cv2.circle(virtual_img, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 3, rgb, -1)
             frame = cv2.circle(rgb_frame, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 2, rgb-40, -1)
         else: #Plot the ref points
