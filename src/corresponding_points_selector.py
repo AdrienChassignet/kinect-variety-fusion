@@ -63,14 +63,15 @@ class CorrespondingPointsSelector():
         """
 
         detector = cv2.ORB_create(self.nb_max_features)
-        descriptor = cv2.xfeatures2d.BEBLID_create(self.descriptor_ratio)
+        descriptor = cv2.xfeatures2d.BEBLID_create(self.descriptor_ratio, 101)
+        orb = cv2.ORB_create(nfeatures=self.nb_max_features)
 
         kp = [0 for i in range(len(rgb_cams))]
         des = [0 for i in range(len(rgb_cams))]
         for i, rgb_cam in enumerate(rgb_cams):
             kp[i] = (detector.detect(rgb_cam, None))
             kp[i], des[i] = descriptor.compute(rgb_cam, kp[i])
-            des[i] = np.float32(des[i])
+            # des[i] = np.float32(des[i])
 
         return kp, des
 
@@ -100,9 +101,16 @@ class CorrespondingPointsSelector():
         Output: - matched_pts: A 2D list containing, for each view, the features that has a
                             match in at least one other view.
         """
-
-        matcher = cv2.DescriptorMatcher_create(cv2.DescriptorMatcher_FLANNBASED)
-        matched_pts = [[[] for j in range(self.nb_max_features)] for i in range(len(kp))]
+        max_size = 2*self.nb_max_features
+        FLANN_INDEX_LSH = 6
+        index_params= dict(algorithm = FLANN_INDEX_LSH,
+                        table_number = 6, # 12
+                        key_size = 12,     # 20
+                        multi_probe_level = 2) #2
+        search_params = dict(checks=50)
+        matcher = cv2.FlannBasedMatcher(index_params, search_params)
+        # matcher = cv2.DescriptorMatcher_create(cv2.DescriptorMatcher_FLANNBASED)
+        matched_pts = [[[] for j in range(max_size)] for i in range(len(kp))]
         max_idx = 0
         # Process all pairs of views
         for i in range(0, len(kp)):
@@ -128,8 +136,12 @@ class CorrespondingPointsSelector():
                                     matched_pts[i][pt2_idx] = pt1 # WARNING: Maybe check if there is already a point here and if it is the same?
                                     max_idx -= 1
                                 except ValueError:
-                                    matched_pts[i][max_idx + good_match_idx] = pt1
-                                    matched_pts[j][max_idx + good_match_idx] = pt2
+                                    try:
+                                        matched_pts[i][max_idx + good_match_idx] = pt1
+                                        matched_pts[j][max_idx + good_match_idx] = pt2
+                                    except IndexError:
+                                        print("Too many features found, try to increase the number of max features or decrease the nn_match_ratio.")
+                                        sys.exit()
                             good_match_idx += 1
                     max_idx = max_idx + good_match_idx
 
@@ -212,9 +224,9 @@ class CorrespondingPointsSelector():
         # Select first extreme point in a counter-clockwise order in both lower and upper hull
         q1_idx = pts[ref_view].index(low_hull[-1])
         q2_idx = pts[ref_view].index(up_hull[-1])
-        # TODO: noncollinearity check!
         if tools.collinear(pts[ref_view][centroid_idx], pts[ref_view][q1_idx], pts[ref_view][q2_idx]):
             print("WARNING! The 3 reference points Q0, Q1 and Q2 are colinear!")
+            # TODO: Incrementally try to use other extreme points until the points are non-colinear
 
         q0 = []
         d0 = []

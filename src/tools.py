@@ -123,10 +123,10 @@ def rescale_and_concatenate_points(pts, q0, q1, q2, d_pts, d0, d1, d2, dmap, max
     new_d_pts.append(d1*max_d)
     new_d_pts.append(d2*max_d)
 
-    corners = [(0, 0), (0, frame_height-1), (frame_width-1, 0), (frame_width-1, frame_height-1)]
-    new_pts += corners
-    #TODO: check if there is a valid depth value here otherwise use the max depth in the frame
-    new_d_pts += [max_d, max_d, max_d, max_d]
+    # corners = [(0, 0), (0, frame_height-1), (frame_width-1, 0), (frame_width-1, frame_height-1)]
+    # new_pts += corners
+    # #TODO: check if there is a valid depth value here otherwise use the max depth in the frame
+    # new_d_pts += [max_d, max_d, max_d, max_d]
 
     return new_pts, new_d_pts
 

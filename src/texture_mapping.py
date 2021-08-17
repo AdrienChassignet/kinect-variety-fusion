@@ -1,5 +1,6 @@
 from matplotlib import pyplot as plt
 import numpy as np
+from numpy.lib.twodim_base import tri
 from scipy.spatial import Delaunay
 import tools
 import visualization
@@ -27,7 +28,6 @@ class TextureMapping():
 
         triangles = self.triangulation(pts, new_pts)
         ref_triangles = self.get_reference_triangles(pts, new_pts)
-        sorting_idx = self.triangles_z_buffering(triangles[-1], new_d_pts)
         
         # projected_pixels = self.find_pixel_correspondences(triangles, ref_triangles, sorting_idx)
         projected_pixels = self.find_pixel_correspondences_bis(triangles, ref_triangles, d_pts, new_d_pts)
@@ -78,11 +78,32 @@ class TextureMapping():
 
         return triangles
 
+    def get_triangles_depth(self, triangle_nv, d_pts, new_d_pts):
+        """
+        Assign to each triangles, for all views, a depth value taken as the mean of
+        the scaled depth value of each vertices. The scaled depth value is the depth
+        of the point normalized by the depth of the reference point Q0.
+        """
+        triangles_depth = []
+        q0_idx = -3
+
+        for view in range(len(d_pts)):
+            d0 = d_pts[view][q0_idx]
+            triangles_depth.append([(d_pts[view][tri[0]]/d0 + d_pts[view][tri[1]]/d0 + d_pts[view][tri[2]]/d0)/3 for tri in triangle_nv.simplices])
+        d0 = new_d_pts[q0_idx]
+        triangles_depth.append([(new_d_pts[tri[0]]/d0 + new_d_pts[tri[1]]/d0 + new_d_pts[tri[2]]/d0)/3 for tri in triangle_nv.simplices])
+
+        return triangles_depth
+
+    def sort_triangles(self, triangle_nv, triangles_depth):
+        n = len(triangles_depth) - 1
+
+
     def triangles_z_buffering(self, triangles, new_d_pts):
         """
         Order the triangles in the novel view in a descending order of depth.
-        The 'depth' of a triangle is computed by taking the mean of the depth of its 3 vertices.
-        Expected triangles input to a Scipy.spatial.Delaunay object.
+        The 'depth' of a triangle is computed by taking the mean of the scaled depth (g = d/d0) of its 3 vertices.
+        Expected triangles input to be a Scipy.spatial.Delaunay object.
         Return the z-buffer indexes of triangles in the triangulation of the novel view.
         """
         # sorted_triangles_idx = []
@@ -101,8 +122,8 @@ class TextureMapping():
 
         if isinstance(triangles, Delaunay):
             depth = np.array([(new_d_pts[tri[0]] + new_d_pts[tri[1]] + new_d_pts[tri[2]])/3 for tri in triangles.simplices])
-        elif isinstance(triangles, list):
-            depth = np.array([(new_d_pts[tri[0]] + new_d_pts[tri[1]] + new_d_pts[tri[2]])/3 for tri in triangles])
+        # elif isinstance(triangles, list):
+        #     depth = np.array([(new_d_pts[tri[0]] + new_d_pts[tri[1]] + new_d_pts[tri[2]])/3 for tri in triangles])
 
         # NOTE: Might be quicker for the sorting operation if we get an int here for the depth to be compared
 
@@ -116,14 +137,15 @@ class TextureMapping():
         Return a list for each view of Scipy.spatial.Delaunay triangluation. The last element is the virtual view.
         """
         ref_triangles = []
+        q0_idx = -3
         for view in range(len(pts)):
             # triangles.append(Delaunator(pts[view]).triangles)
-            ref_triangles.append(Delaunay(pts[view][-7:-4]))
+            ref_triangles.append(Delaunay(pts[view][q0_idx:]))
         #triangles.append(Delaunator(new_pts+corners).triangles)
-        ref_triangles.append(Delaunay(new_pts[-7:-4]))
+        ref_triangles.append(Delaunay(new_pts[q0_idx:]))
 
         return ref_triangles
-
+    """
     def find_pixel_correspondences(self, triangles, ref_triangles, sorting_order):
         # Get for each pixels in the novel view, the list of the pixels from the input views that are correspondent
 
@@ -215,13 +237,14 @@ class TextureMapping():
                                 if (projected_pixels[proj_px[::-1]] == None) or (projected_pixels[proj_px[::-1]].depth > depth):
                                     projected_pixels[proj_px[::-1]] = ProjectedPixel(proj_px, view, depth)
 
-        return projected_pixels
+        return projected_pixels"""
 
     def find_pixel_correspondences_bis(self, triangles, ref_triangles, d_pts, new_d_pts):
         # Get for each pixels in the novel view, the list of the pixels from the input views that are correspondent
         # This time find for each pixels in the novel view, which point are projected here in input views
 
         sorting_idx = self.triangles_z_buffering(triangles[-1], new_d_pts)
+        triangles_depth = self.get_triangles_depth(triangles[-1], d_pts, new_d_pts)
 
         frame = 255 * np.ones([self.frame_height, self.frame_width, 3], dtype=np.uint8)
 
@@ -239,6 +262,11 @@ class TextureMapping():
             b_ref = ref_triangles[-1].transform[0,:2].dot(np.transpose(vertices_v[0] - ref_triangles[-1].transform[0,2]))
             b_coord_ref = [b_ref[0], b_ref[1], 1 - b_ref.sum(axis=0)]
 
+            # Compare depth of the corresponding triangles from inputs and select the one with closest depth
+            tri_depth = np.array([triangles_depth[i][tri_idx] for i in range(len(triangles_depth)-1)])
+            view_closest = (np.abs(tri_depth - triangles_depth[-1][tri_idx])).argmin()
+            view_front = tri_depth.argmin()
+
             min_u = max(0, int(vertices_v[:,0].min()))
             max_u = min(self.frame_width, int(vertices_v[:,0].max()))
             min_v = max(0, int(vertices_v[:,1].min()))
@@ -255,7 +283,7 @@ class TextureMapping():
                         r_b = ref_triangles[-1].transform[0,:2].dot(np.transpose((u,v) - ref_triangles[-1].transform[0,2]))
                         r_b_coord = [r_b[0], r_b[1], 1 - r_b.sum(axis=0)]
                         # for view in range(len(triangles) - 1):
-                        for view in [2]:
+                        for view in [view_closest]:
                             # Get corresponding triangle in processed input view
                             t_i = t_v
                             # cor_idx = np.where((triangles[view].simplices == t_v).all(axis=1))[0]
@@ -273,10 +301,20 @@ class TextureMapping():
 
                             pr = (r_back_proj[0]-px_back_proj[0], r_back_proj[1]-px_back_proj[1])
                             dist_pr = np.linalg.norm(pr, ord=2)
-                            
+          
+                            # if u%25==0 and v%25==0: #1.0 in px_b_coord:
+                            #     if view == 0:
+                            #         frame = cv2.circle(frame, (round(px_back_proj[0]), round(px_back_proj[1])), 2, (0,0,255), -1)
+                            #     if view == 1:
+                            #         frame = cv2.circle(frame, (round(px_back_proj[0]), round(px_back_proj[1])), 2, (0,255,0), -1)
+                            #     # if view == 2:
+                            #     #     frame = cv2.circle(frame, (round(px_back_proj[0]), round(px_back_proj[1])), 2, (0,155,155), -1)
+                            #     frame = cv2.circle(frame, r_back_proj, 2, (255,0,0), -1)
+                            #     frame = cv2.line(frame, (round(px_back_proj[0]), round(px_back_proj[1])), r_back_proj, rgb, 1)
+
                             # NOTE: maybe here we could store the sub_pixel position in input view
                             # to do a weigthed RGB mapping from the 4 neighbors pixels or bilinear interpolation
-                            if projected_pixels[v,u] == None or projected_pixels[v,u].depth < dist_pr:
+                            if projected_pixels[v,u] == None or projected_pixels[v,u].depth > dist_pr:
                                 # tmp = projected_pixels[v,u].pixel
                                 # frame = cv2.circle(frame, tmp, 2, (0,255,0), -1)
                                 # frame = cv2.circle(frame, px_back_proj, 2, (0,0,255), -1)
@@ -293,7 +331,7 @@ class TextureMapping():
 
 
     """--------------------------------------------"""
-
+    """
     def find_pixel_correspondences_full_triangles(self, triangles, pts, new_pts, d_pts, new_d_pts):
         # Get for each pixels in the novel view, the list of the pixels from the input views that are correspondent
 
@@ -328,7 +366,7 @@ class TextureMapping():
                                 px_back_proj = tuple(np.matmul(vertices_i.transpose(), b_coord).round().astype('int'))
                                 projected_pixels[v,u] = ProjectedPixel(px_back_proj, view, 0)
 
-        return projected_pixels
+        return projected_pixels"""
 
     def map_inputs_to_novel_view(self, rgb_cams, projected_pixels):
         new_img = np.zeros([self.frame_height, self.frame_width, 3], dtype=np.uint8)

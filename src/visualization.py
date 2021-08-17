@@ -36,7 +36,7 @@ def plot_matched_features(rgb_cams, pts, q0, q1, q2, name="Matched features"):
 
     fig = plt.figure(name)
     for i in range(len(rgb_cams_cp)):
-        ax = fig.add_subplot((len(rgb_cams_cp)+2)//3, 3, i+1)
+        ax = fig.add_subplot((len(rgb_cams_cp)+4)//5, 5, i+1)
         imgplot = plt.imshow(rgb_cams_cp[i])
         ax.set_title('Cam{}'.format(i))
 
@@ -48,8 +48,8 @@ def plot_point_placement_results(rgb_frame, pts, pts_gt, frame_height, frame_wid
     # virtual_img = cv2.circle(virtual_img, q1v, 7, (255,0,0), -1)
     # virtual_img = cv2.circle(virtual_img, q2v, 7, (255,0,0), -1)
     frame = rgb_frame.copy()
-    for idx in range(len(pts)-1):#+3
-        if idx < len(pts):
+    for idx in range(len(pts_gt)-4):
+        if idx < len(pts_gt)-7:
             rgb = np.random.rand(3,)*255
             c = (round(pts_gt[idx][0]), round(pts_gt[idx][1]))
             frame = cv2.circle(rgb_frame, c, 4, rgb, -1)

@@ -1,8 +1,9 @@
 import numpy as np
-from scipy.optimize import minimize, Bounds
+from scipy.optimize import minimize, Bounds, least_squares
+from functools import partial
 
 class ParameterizedImageVariety():
-    def __init__(self, q0, d0, q1, d1, q2, d2, pts, d_pts, virtual_view, frame_width=1280, frame_height=720, max_depth=6000, debug=False):
+    def __init__(self, q0, d0, q1, d1, q2, d2, pts, d_pts, virtual_view, frame_width=1280, frame_height=720, max_depth=6000, resid_thresh=1e-8, debug=False):
         self.nb_pts = len(pts[0])
         self.q0 = q0
         self.q1 = q1
@@ -19,9 +20,17 @@ class ParameterizedImageVariety():
         self.max_depth = max_depth
 
         self.struct_coeffs = []
+        self.resid_thresh = resid_thresh
 
         self.debug = debug
         self.resids = []
+
+    def get_updated_pts(self):
+        """
+        Return updated feature points in the case some are removed for a bad structure
+        coefficients estimation.
+        """
+        return self.pts, self.d_pts
 
     def get_virtual_pts(self):
         """
@@ -54,8 +63,10 @@ class ParameterizedImageVariety():
 
     def compute_structure_coefficients(self):
         """
-        For each point in the scene, compute the structure coefficients associated with the PIV.
+        For each point in the scene, estimate the structure coefficients associated with the PIV.
+        Remove points of the pipeline if the residual after estimation is above a threshold.
         """
+        bad_result_idx = []
         for pt_idx in range(self.nb_pts):
             Kis = []
             for view in range(len(self.pts)):
@@ -63,9 +74,17 @@ class ParameterizedImageVariety():
                     Kis.append(self.build_constraints_matrix(view, self.pts[view][pt_idx], self.d_pts[view][pt_idx]))
             Kis = np.concatenate(Kis)
             _, D, V = np.linalg.svd(Kis)
-            self.struct_coeffs.append(V[-1]/V[-1,-1])
-            if self.debug:
-                self.resids.append(np.sum(np.matmul(Kis, self.struct_coeffs[-1])**2))
+            resid = np.sum(np.matmul(Kis, V[-1]/V[-1,-1])**2)
+            if resid > self.resid_thresh:
+                bad_result_idx.append(pt_idx)
+            else:
+                self.struct_coeffs.append(V[-1]/V[-1,-1])
+                if self.debug:
+                    self.resids.append(resid)
+        for view in range(len(self.pts)):
+            self.pts[view] = [pt for i, pt in enumerate(self.pts[view]) if i not in bad_result_idx]
+            self.d_pts[view] = [d_pt for i, d_pt in enumerate(self.d_pts[view]) if i not in bad_result_idx]
+        self.nb_pts -= len(bad_result_idx)
 
     def build_constraints_matrix(self, view, q, d):
         """
@@ -105,20 +124,23 @@ class ParameterizedImageVariety():
 
         virtual_pts = []
         virtual_d_pts = []
+        occluded_idx = []
 
         for pt_idx in range(self.nb_pts):
             # Estimate the position of the current processed point in the new virtual view
             qv = self.pts[self.virtual_view][pt_idx]
             
             (uv, vv) = qv
-            expected = np.array([uv, vv, self.d_pts[self.virtual_view][pt_idx], 1, 1])
+            # expected = np.array([uv, vv, self.d_pts[self.virtual_view][pt_idx], 1, 1])
+            expected = np.array([uv, vv, self.d_pts[self.virtual_view][pt_idx]])
             
             # Start the search from a close position in a reference view
             ref_view = 0 # self.virtual_view+1
             while ref_view == self.virtual_view or self.pts[ref_view][pt_idx] == []:
                 ref_view += 1
 
-            x0 = np.array([self.pts[ref_view][pt_idx][0], self.pts[ref_view][pt_idx][1], self.d_pts[ref_view][pt_idx], 1, 1])
+            # x0 = np.array([self.pts[ref_view][pt_idx][0], self.pts[ref_view][pt_idx][1], self.d_pts[ref_view][pt_idx], 1, 1])
+            x0 = np.array([self.pts[ref_view][pt_idx][0], self.pts[ref_view][pt_idx][1], self.d_pts[ref_view][pt_idx]])
             # x0 = expected
             # print("Initialization [u, v, g1, g2, g3] = ", x0)
 
@@ -129,7 +151,8 @@ class ParameterizedImageVariety():
             # Minimize sum of squares to solve the system
 
             # Define bounds of the solution space
-            b = [[0,0,0,-np.inf,-np.inf], [1,1,2,np.inf,np.inf]]
+            # b = [[0,0,0,-np.inf,-np.inf], [1,1,2,np.inf,np.inf]]
+            b = [[0,0,0], [1,1,2]]
 
             # Convert bounds into constraints
             cons = []
@@ -140,9 +163,11 @@ class ParameterizedImageVariety():
                 u = {'type':'ineq', 'fun': lambda x, ub=upper, i=idx: ub - x[i]}
                 cons.append(l)
                 cons.append(u)
-            b = Bounds(b[0], b[1], False)
+            bnds = Bounds(b[0], b[1], False)
 
-            res = minimize(self.sum_of_squares_of_F, x0, cst, method='Nelder-mead', constraints=cons, bounds=b, options={'disp': self.debug, 'xatol': 0.000001, 'fatol': 0.000001})
+            partial_F = partial(self.call_F, self.F, cst)
+            res = least_squares(partial_F, x0, method='lm')
+            # res = minimize(self.sum_of_squares_of_F, x0, cst, method='Nelder-mead', constraints=cons, bounds=bnds, options={'disp': False, 'xatol': 0.000001, 'fatol': 0.000001})
 
             if res:
                 u = round(res["x"][0] * self.frame_width) 
@@ -151,10 +176,13 @@ class ParameterizedImageVariety():
                 try: # Check if the new point project on the same coordinates as a previous one
                     occlusion = virtual_pts.index((u,v))
                     if virtual_d_pts[occlusion] > d: # If the new point is closer to the image plane replace the occluded one
-                        del virtual_pts[occlusion]
-                        del virtual_d_pts[occlusion]
-                        virtual_pts.append((u,v))
-                        virtual_d_pts.append(d)
+                        # del virtual_pts[occlusion]
+                        # del virtual_d_pts[occlusion]
+                        occluded_idx.append(occlusion)
+                    else:
+                        occluded_idx.append(pt_idx)
+                    virtual_pts.append((u,v))
+                    virtual_d_pts.append(d)
                 except ValueError:
                     virtual_pts.append((u,v))
                     virtual_d_pts.append(d)
@@ -168,45 +196,63 @@ class ParameterizedImageVariety():
                 #     print("Expected result: ", expected)
                 #     print("Solution found: ", res["x"], " / residual being: ", res["fun"])
                 #     print("Error px: ", error_img_pos[-1])
-                #     print('--------------------------------------------------')
-                    
+                #     print('--------------------------------------------------') 
 
         if self.debug:
-            for idx in range(len(error_img_pos)):
-                print("{4}- Point {0} ; Residual error for coeffs: {1} ; Pixel error: {2} ; Depth error: {3}".format(self.pts[self.virtual_view][idx], self.resids[idx], error_img_pos[idx], error_depth[idx], idx))
+            print(len(virtual_pts), " matched points")
+            # for idx in range(len(error_img_pos)):
+            #     print("{4}- Point {0} ; Residual error for coeffs: {1} ; Pixel error: {2} ; Depth error: {3}".format(self.pts[self.virtual_view][idx], self.resids[idx], error_img_pos[idx], error_depth[idx], idx))
             print("Error in pixels for point placement: \nMean: {0} / Max: {1} / Min: {2} / Std: {3}".format(np.mean(error_img_pos),
                     np.max(error_img_pos), np.min(error_img_pos), np.std(error_img_pos)))
             print("Error in mm for corresponding depth: \nMean: {0} / Max: {1} / Min: {2} / Std: {3}".format(np.mean(error_depth),
                     np.max(error_depth), np.min(error_depth), np.std(error_depth)))
+            print("Residuals for PIV estimation: \nMean: {0} / Max: {1} / Min: {2} / Std: {3}".format(np.mean(self.resids),
+                    np.max(self.resids), np.min(self.resids), np.std(self.resids)))
+
+        #Remove the points not used because of occlusions
+        for view in range(len(self.pts)):
+            self.pts[view] = [pt for i, pt in enumerate(self.pts[view]) if i not in occluded_idx]
+            self.d_pts[view] = [d_pt for i, d_pt in enumerate(self.d_pts[view]) if i not in occluded_idx]
+        virtual_pts = [pt for i, pt in enumerate(virtual_pts) if i not in occluded_idx]
+        virtual_d_pts = [d_pt for i, d_pt in enumerate(virtual_d_pts) if i not in occluded_idx]
  
         return virtual_pts, virtual_d_pts
 
 
     def F(self, x, cst):
         """
-        Define the system of equations.
+        Define the system of equations in factorized form.
         cst = [u0, v0, u1, v1, u2, v2, coeffs, d0, d1, d2]
         x = [u, v, d3, 1, 1]
         """
         # Here only coeffs from the cst list is changing in each call of this method => it could be optimized by avoiding recomputing for the fixed parameters
         [u0, v0, u1, v1, u2, v2, coeffs, d0, d1, d2] = cst
-        [u, v, d3, _, _] = x
+        # [u, v, d3, _, _] = x
+        [u,v,d3] = x
         a = d1*u1 - d0*u0
         b = d2*u2 - d0*u0
-        c = d3*u - d0*u0
         l = d1*v1 - d0*v0 
         m = d2*v2 - d0*v0
-        n = d3*v - d0*v0
         r = d1 - d0
         s = d2 - d0
-        t = d3 - d0
+        c1 = coeffs[0]*(a**2-l**2) + 2*coeffs[1]*(a*b-l*m) + coeffs[2]*(b**2-m**2) + 2*coeffs[3]*d0*(l*v0 - a*u0) + 2*coeffs[4]*d0*(m*v0 - b*u0) + (d0*u0)**2 - (d0*v0)**2
+        c2 = coeffs[0]*(l**2-r**2) + 2*coeffs[1]*(l*m-r*s) + coeffs[2]*(m**2-s**2) + 2*coeffs[3]*d0*(r - l*v0) + 2*coeffs[4]*d0*(s - m*v0) + (d0*v0)**2 - d0**2
+        c3 = coeffs[0]*a*l + coeffs[1]*(l*b+m*a) + coeffs[2]*m*b - coeffs[3]*d0*(l*u0 + a*v0) - coeffs[4]*d0*(m*u0 + b*v0) + u0*v0*d0**2
+        c4 = coeffs[0]*a*r + coeffs[1]*(r*b+s*a) + coeffs[2]*s*b - coeffs[3]*d0*(r*u0 + a) - coeffs[4]*d0*(s*u0 + b) + u0*d0**2
+        c5 = coeffs[0]*r*l + coeffs[1]*(l*s+m*r) + coeffs[2]*m*s - coeffs[3]*d0*(r*v0 + l) - coeffs[4]*d0*(s*v0 + m) + v0*d0**2
+        alpha = a*coeffs[3] + b*coeffs[4] - u0*d0
+        beta = l*coeffs[3] + m*coeffs[4] - v0*d0
+        gamma = r*coeffs[3] + s*coeffs[4] - d0
         return np.array([
-            coeffs[0]*(a**2-l**2) + 2*coeffs[1]*(a*b-l*m) + coeffs[2]*(b**2-m**2) + 2*coeffs[3]*(a*c-l*n) + 2*coeffs[4]*(b*c-m*n) + c**2 - n**2,
-            coeffs[0]*(l**2-r**2) + 2*coeffs[1]*(l*m-r*s) + coeffs[2]*(m**2-s**2) + 2*coeffs[3]*(l*n-r*t) + 2*coeffs[4]*(m*n-s*t) + n**2 - t**2,
-            coeffs[0]*a*l + coeffs[1]*(l*b+m*a) + coeffs[2]*m*b + coeffs[3]*(l*c+n*a) + coeffs[4]*(m*c+b*n) + c*n,
-            coeffs[0]*a*r + coeffs[1]*(r*b+s*a) + coeffs[2]*s*b + coeffs[3]*(r*c+t*a) + coeffs[4]*(s*c+b*t) + c*t,
-            coeffs[0]*r*l + coeffs[1]*(l*s+m*r) + coeffs[2]*m*s + coeffs[3]*(l*t+n*r) + coeffs[4]*(m*t+s*n) + t*n   
+            d3*(u*(d3*u + 2*alpha) - v*(d3*v + 2*beta)) + c1,
+            d3*(v*(d3*v + 2*beta) - d3 - 2*gamma) + c2,
+            d3*(d3*u*v + u*beta + v*alpha) + c3,
+            d3*(d3*u + u*gamma + alpha) + c4,
+            d3*(d3*v + v*gamma + beta) + c5 
         ])
+
+    def call_F(self, F, cst, x):
+        return F(x, cst)
 
     def sum_of_squares_of_F(self, x, cst):
         """
@@ -214,4 +260,4 @@ class ParameterizedImageVariety():
         cst = [u0, v0, u1, v1, u2, v2, coeffs, d0, d1, d2]
         x = [u, v, d3, 1, 1]
         """
-        return np.sum(self.F(x,cst)**2)
+        return 0.5*np.sum(self.F(x,cst)**2)
