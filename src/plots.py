@@ -6,7 +6,6 @@ from matplotlib import colors
 
 # Scene 1 small baseline cameras [1,3,4,5,7]
 
-
 data = {
     "Lowe's ratio": [0.6, 0.62, 0.64, 0.66, 0.68,
                      0.6, 0.62, 0.64, 0.66, 0.68,
@@ -15,7 +14,7 @@ data = {
                      0.6, 0.62, 0.64, 0.66,
                      0.6, 0.64, 0.68, 0.7,
                      0.6, 0.64, 0.68],
-    "Pixel error": [1.69, 1.38, 1.43, 1.53, 1.65,
+    "Pixel error (mean)": [1.69, 1.38, 1.43, 1.53, 1.65,
                     1.62, 1.30, 1.36, 1.47, 1.61, 
                     1.58, 1.25, 1.36, 1.47, 1.51, 
                     1.34, 1.02, 1.55, 1.69, 1.69, 
@@ -67,15 +66,35 @@ data = {
 }
 
 df = pd.DataFrame(data)
+df = pd.read_pickle("scene1_small_13457.pkl")
+df_lm = df[df['Method'] == 'Nelder-Mead']
 
-palette = sns.color_palette(n_colors=5)
+nb_res_thresh = len(df.groupby('Residual Threshold'))
+nb_method = len(df.groupby('Method'))
+nb_ratios = len(df.groupby("Lowe's ratio"))
+
+
+palette = sns.color_palette(n_colors=nb_res_thresh)
 fig, ax = plt.subplots()
-p1 = sns.lineplot(x="Lowe's ratio", y="Pixel error", hue='Residual Threshold', style='Method', err_style='bars', data=df, palette=palette)
+p2 = sns.lineplot(x="Lowe's ratio", y="Nb points", hue='Residual Threshold', ci=None, data=df_lm, palette=palette)
+p1 = sns.catplot(x="Lowe's ratio", y="Pixel error (mean)", hue='Residual Threshold', col='Method', data=df, kind='bar', palette=palette)
 
-
-for item, color in zip(df.groupby('Residual Threshold'),palette):
+for item, color in zip(df_lm.groupby('Residual Threshold'),palette):
     #item[1] is a grouped data frame
-    for x,y,m in item[1][["Lowe's ratio",'Pixel error','Nb points']].values:
+    for x,y,m in item[1][["Lowe's ratio",'Nb points','Nb points']].values:
         ax.text(x,y,f'{m:.0f}',color=color)
+# for i, (key, item) in enumerate(df.groupby(['Residual Threshold', 'Method', "Lowe's ratio"])):
+#     #item[1] is a grouped data frame
+#     l = item[['Pixel error']].values
+#     mean_val = min(l, key=lambda x:abs(x-np.mean(l)))
+#     for x,y,m,rt,met in item[["Lowe's ratio",'Pixel error','Nb points', 'Residual Threshold', 'Method']].values:
+#         if y == mean_val and met=='lm':
+#             ax.text(x,y,f'{m:.0f}',color=palette[i//(nb_method*nb_ratios)])
+
+for ax in p1.axes.ravel():
+    for c in ax.containers:
+        labels = [f'{(v.get_height()):.1f}' for v in c]
+        ax.bar_label(c, labels=labels, label_type='edge')
+    ax.margins(y=0.2)
 
 plt.show()

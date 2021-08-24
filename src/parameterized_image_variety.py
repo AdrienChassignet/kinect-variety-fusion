@@ -1,9 +1,10 @@
 import numpy as np
 from scipy.optimize import minimize, Bounds, least_squares
 from functools import partial
+import sys
 
 class ParameterizedImageVariety():
-    def __init__(self, q0, d0, q1, d1, q2, d2, pts, d_pts, virtual_view, frame_width=1280, frame_height=720, max_depth=6000, resid_thresh=1e-8, debug=False):
+    def __init__(self, q0, d0, q1, d1, q2, d2, pts, d_pts, virtual_view, frame_width=1280, frame_height=720, max_depth=6000, resid_thresh=1e-8, method='lm', debug=False):
         self.nb_pts = len(pts[0])
         self.q0 = q0
         self.q1 = q1
@@ -21,6 +22,8 @@ class ParameterizedImageVariety():
 
         self.struct_coeffs = []
         self.resid_thresh = resid_thresh
+
+        self.method = method
 
         self.debug = debug
         self.resids = []
@@ -43,9 +46,9 @@ class ParameterizedImageVariety():
 
         q0v, q1v, q2v, d0v, d1v, d2v = self.create_novel_view()
 
-        virtual_pts, virtual_d_pts = self.compute_image_positions_in_virtual_view(q0v, q1v, q2v, d0v, d1v, d2v)
+        virtual_pts, virtual_d_pts, error_res = self.compute_image_positions_in_virtual_view(q0v, q1v, q2v, d0v, d1v, d2v)
 
-        return virtual_pts, virtual_d_pts
+        return virtual_pts, virtual_d_pts, error_res
 
     def create_novel_view(self):
         """
@@ -165,9 +168,14 @@ class ParameterizedImageVariety():
                 cons.append(u)
             bnds = Bounds(b[0], b[1], False)
 
-            partial_F = partial(self.call_F, self.F, cst)
-            res = least_squares(partial_F, x0, method='lm')
-            # res = minimize(self.sum_of_squares_of_F, x0, cst, method='Nelder-mead', constraints=cons, bounds=bnds, options={'disp': False, 'xatol': 0.000001, 'fatol': 0.000001})
+            if self.method == 'lm':
+                partial_F = partial(self.call_F, self.F, cst)
+                res = least_squares(partial_F, x0, method='lm')
+            elif self.method == 'nm':
+                res = minimize(self.sum_of_squares_of_F, x0, cst, method='Nelder-mead', constraints=cons, bounds=bnds, options={'disp': False, 'xatol': 0.000001, 'fatol': 0.000001})
+            else:
+                print("Unrecognized optimization method")
+                sys.exit()
 
             if res:
                 u = round(res["x"][0] * self.frame_width) 
@@ -216,7 +224,7 @@ class ParameterizedImageVariety():
         virtual_pts = [pt for i, pt in enumerate(virtual_pts) if i not in occluded_idx]
         virtual_d_pts = [d_pt for i, d_pt in enumerate(virtual_d_pts) if i not in occluded_idx]
  
-        return virtual_pts, virtual_d_pts
+        return virtual_pts, virtual_d_pts, [error_img_pos, error_depth]
 
 
     def F(self, x, cst):

@@ -36,7 +36,7 @@ def plot_matched_features(rgb_cams, pts, q0, q1, q2, name="Matched features"):
 
     fig = plt.figure(name)
     for i in range(len(rgb_cams_cp)):
-        ax = fig.add_subplot((len(rgb_cams_cp)+4)//5, 5, i+1)
+        ax = fig.add_subplot((len(rgb_cams_cp)+2)//3, 3, i+1)
         imgplot = plt.imshow(rgb_cams_cp[i])
         ax.set_title('Cam{}'.format(i))
 

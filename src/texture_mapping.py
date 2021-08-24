@@ -27,6 +27,7 @@ class TextureMapping():
         self.max_depth = np.max(depth_cams)
 
         triangles = self.triangulation(pts, new_pts)
+        # triangles = self.full_triangulation(pts, new_pts)
         ref_triangles = self.get_reference_triangles(pts, new_pts)
         
         # projected_pixels = self.find_pixel_correspondences(triangles, ref_triangles, sorting_idx)
