@@ -4,6 +4,79 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import colors
 
+#import main
+
+# data = {
+#     "Lowe's ratio": [],
+#     "Pixel error (mean)": [],
+#     "Depth error": [],
+#     "Nb points": [],
+#     "Residual Threshold": [],
+#     "Method":[]
+# }
+
+# cams = [1,3,4,5,7]
+# # nn_ratios = [.56, .57, .58, .59, .6, .61, .62, .63, .64, .65, .66, .67, .68, .69, .7, .71, .72, .74]
+# nn_ratios = [.56, .58, .6, .62, .64, .66, .68, .7, .72, .74]
+# thresholds = [1e-5, 1e-6, 1e-7, 1e-8, 1e-9]
+# for method in ['lm', 'nm']:
+#     for resid_thresh in thresholds:
+#         for nn_ratio in nn_ratios:
+#             print("method: ", method, " / nn ratio = ", nn_ratio, " / resid_thresh = ", resid_thresh)
+#             try:
+#                 n, res = main(nn_ratio, resid_thresh, method, cams)
+#                 # for i in range(n):
+#                 #     data["Lowe's ratio"].append(nn_ratio)
+#                 #     data["Pixel error (mean)"].append(res[0][i])
+#                 #     data["Depth error"].append(res[1][i])
+#                 #     data["Nb points"].append(n)
+#                 #     data["Residual Threshold"].append(resid_thresh)
+#                 #     data["Method"].append(method)
+#                 data["Lowe's ratio"].append(nn_ratio)
+#                 data["Pixel error (mean)"].append(np.mean(res[0]))
+#                 data["Depth error"].append(np.mean(res[1]))
+#                 data["Nb points"].append(n)
+#                 data["Residual Threshold"].append(resid_thresh)
+#                 if method == 'lm':
+#                     data["Method"].append('Levenberg-Marquardt')
+#                 elif method == 'nm':
+#                     data["Method"].append('Nelder-Mead')
+#             except:
+#                 print('Error')
+
+# data = {
+#     "Scene": [],
+#     "Pixel error (mean)": [],
+#     "Depth error (mean)": [],
+#     "Nb points": [],
+#     "Baseline": [],
+#     "Camera configuration":[]
+# }
+
+# cam_configs = [[0,1,2,3,4,5,6,7,8], [0,2,4,6,8], [1,3,4,5,7], [3,4,5], [1,4,7]]
+# config_names = ['Full', 'Corners', 'Cross', 'Horizontal', 'Vertical']
+# files = ["data/scene1_small/", "data/scene1_wide/", "data/scene2_small/", "data/scene2_wide/"]
+# for i, cams in enumerate(cam_configs):
+#     for j, filename in enumerate(files):
+#         FOLDER_NAME = filename
+#         print("File: ", filename, " // Config: ", config_names[i])
+#         try:
+#             n, res = main(cameras=cams)
+#             data["Scene"].append(j//2 + 1)
+#             data["Pixel error (mean)"].append(np.mean(res[0]))
+#             data["Depth error (mean)"].append(np.mean(res[1]))
+#             data["Nb points"].append(n)
+#             if j%2 == 0:
+#                 data["Baseline"].append('Small')
+#             else:
+#                 data["Baseline"].append('Wide')
+#             data["Camera configuration"].append(config_names[i])
+#         except:
+#             print('Error')
+
+# df = pd.DataFrame(data)
+# df.to_pickle("scenes_configs.pkl")
+
 # Scene 1 small baseline cameras [1,3,4,5,7]
 
 data = {

@@ -44,7 +44,6 @@ class CorrespondingPointsSelector():
 
         pts = self.matched_points_extraction(rgb_cams)
         pts = self.common_points_extraction(pts)
-        # pts = self.get_human_landmarks(rgb_cams, pts)
 
         m = len(pts[0])
         if m < 4:
@@ -55,6 +54,8 @@ class CorrespondingPointsSelector():
 
         q0, q1, q2, d0, d1, d2, pts, d_pts = self.select_reference_points(pts, d_pts)
 
+        pts, d_pts = self.get_human_landmarks(rgb_cams, depth_cams, pts, d_pts)
+
         return q0, d0, q1, d1, q2, d2, pts, d_pts
 
     def features_extraction(self, rgb_cams):
@@ -64,7 +65,6 @@ class CorrespondingPointsSelector():
 
         detector = cv2.ORB_create(self.nb_max_features)
         descriptor = cv2.xfeatures2d.BEBLID_create(self.descriptor_ratio, 101)
-        orb = cv2.ORB_create(nfeatures=self.nb_max_features)
 
         kp = [0 for i in range(len(rgb_cams))]
         des = [0 for i in range(len(rgb_cams))]
@@ -117,7 +117,10 @@ class CorrespondingPointsSelector():
             for j in range(i+1,len(kp)):
                     matches = matcher.knnMatch(des[i],des[j],k=2)
                     good_match_idx = 0
-                    for idx, (m, n) in enumerate(matches):
+                    for idx, pair in enumerate(matches):
+                        if len(pair) < 2:
+                            continue
+                        (m, n) = pair
                         if m.distance < self.nn_match_ratio * n.distance:
                             # Good matches
                             pt1 = kp[i][m.queryIdx].pt
@@ -250,17 +253,25 @@ class CorrespondingPointsSelector():
 
         return q0, q1, q2, d0, d1, d2, pts, d_pts
 
-    def get_human_landmarks(self, rgb_cams, pts):
+    def get_human_landmarks(self, rgb_cams, d_cams, pts, d_pts):
         """
         Use mediapipe package to detect facial, hands and pose landmarks.
         Use these landmarks as correspondence features across the views.
         """
+        new_pts = [[] for i in range(len(rgb_cams))]
         with self.mp_holistic.Holistic(
-            min_detection_confidence=0.6,
+            min_detection_confidence=0.4,
             static_image_mode=True) as holistic:
             for idx, image in enumerate(rgb_cams):
                 image_height, image_width, _ = image.shape
                 # Convert the BGR image to RGB before processing.
                 results = holistic.process(image)
-                pts[idx] += [(ld.x*image_width, ld.y*image_height) for ld in results.face_landmarks.landmark]
-        return pts
+                if results.face_landmarks != None:
+                    new_pts[idx] = [(ld.x*image_width, ld.y*image_height) for ld in results.face_landmarks.landmark]
+                else: #if a face has not been detected in one of the image views, don't use facial landmarks
+                    return pts, d_pts
+        new_d_pts, new_pts = self.depth_value_extraction(d_cams, new_pts)
+        for idx in range(len(rgb_cams)):
+            pts[idx] += new_pts[idx]
+            d_pts[idx] += new_d_pts[idx]
+        return pts, d_pts

@@ -1,14 +1,11 @@
 from matplotlib import pyplot as plt
 import numpy as np
-from numpy.lib.twodim_base import tri
 from scipy.spatial import Delaunay
 import tools
 import visualization
 
 import cv2
 import math
-
-from delaunator import Delaunator
 
 class ProjectedPixel():
     def __init__(self, pixel, view, depth):
@@ -23,18 +20,18 @@ class TextureMapping():
         self.max_depth = 0
 
     def create_novel_view_image(self, new_pts, new_d_pts, pts, d_pts, rgb_cams, depth_cams):
+        """
+        Given the input images, the list of matched points in the input views and their estimated position in 
+        the novel view, synthesize the novel view.
+        """
+
         self.frame_height, self.frame_width, _ = np.shape(rgb_cams[0])
         self.max_depth = np.max(depth_cams)
 
         triangles = self.triangulation(pts, new_pts)
-        # triangles = self.full_triangulation(pts, new_pts)
         ref_triangles = self.get_reference_triangles(pts, new_pts)
         
-        # projected_pixels = self.find_pixel_correspondences(triangles, ref_triangles, sorting_idx)
-        projected_pixels = self.find_pixel_correspondences_bis(triangles, ref_triangles, d_pts, new_d_pts)
-
-        # triangles = self.full_triangulation(pts, new_pts)
-        # projected_pixels = self.find_pixel_correspondences_full_triangles(triangles, pts, new_pts, d_pts, new_d_pts)
+        projected_pixels = self.find_pixel_correspondences(triangles, ref_triangles, d_pts, new_d_pts)
 
         new_img = self.map_inputs_to_novel_view(rgb_cams, projected_pixels)
 
@@ -53,9 +50,7 @@ class TextureMapping():
         """
         triangles = []
         for view in range(len(pts)):
-            # triangles.append(Delaunator(pts[view]).triangles)
             triangles.append(Delaunay(pts[view]))
-        #triangles.append(Delaunator(new_pts+corners).triangles)
         triangles.append(Delaunay(new_pts))
 
         return triangles
@@ -99,7 +94,6 @@ class TextureMapping():
     def sort_triangles(self, triangle_nv, triangles_depth):
         n = len(triangles_depth) - 1
 
-
     def triangles_z_buffering(self, triangles, new_d_pts):
         """
         Order the triangles in the novel view in a descending order of depth.
@@ -107,19 +101,6 @@ class TextureMapping():
         Expected triangles input to be a Scipy.spatial.Delaunay object.
         Return the z-buffer indexes of triangles in the triangulation of the novel view.
         """
-        # sorted_triangles_idx = []
-        # for view in range(len(triangles) - 1):
-        #     depth = np.zeros(len(triangles[view].simplices))
-        #     for i, tri in enumerate(triangles[view].simplices):
-        #         depth[i] = (d_pts[view][tri[0]] + d_pts[view][tri[0]] + d_pts[view][tri[0]])/3
-        #     # sorted_triangles.append([t for _, t in sorted(zip(depth, triangles[view]), key=lambda pair: pair[0], reverse=True)])
-        #     sorted_triangles_idx.append(np.argsort(-depth))
-
-        # NOTE: We assume that the z-buffering is the same for all the frames. In other terms, we make the assumption
-        #       that the depth of the corresponding triangles does not vary significantly between the views.
-        #       This assumption is not really correct but can be accepted in our scenario with no huge change in 
-        #       the z-axis or rotations between the views.
-        # NOTE bis: Now the texture mapping algorithm does not need to order input views triangles.
 
         if isinstance(triangles, Delaunay):
             depth = np.array([(new_d_pts[tri[0]] + new_d_pts[tri[1]] + new_d_pts[tri[2]])/3 for tri in triangles.simplices])
@@ -140,12 +121,173 @@ class TextureMapping():
         ref_triangles = []
         q0_idx = -3
         for view in range(len(pts)):
-            # triangles.append(Delaunator(pts[view]).triangles)
             ref_triangles.append(Delaunay(pts[view][q0_idx:]))
-        #triangles.append(Delaunator(new_pts+corners).triangles)
         ref_triangles.append(Delaunay(new_pts[q0_idx:]))
 
         return ref_triangles
+
+    def find_pixel_correspondences(self, triangles, ref_triangles, d_pts, new_d_pts):
+        # Get for each pixels in the novel view, the list of the pixels from the input views that are correspondent
+        # This time find for each pixels in the novel view, which point are projected here in input views
+
+        sorting_idx = self.triangles_z_buffering(triangles[-1], new_d_pts)
+        triangles_depth = self.get_triangles_depth(triangles[-1], d_pts, new_d_pts)
+
+        frame = 255 * np.ones([self.frame_height, self.frame_width, 3], dtype=np.uint8)
+
+        projected_pixels = np.empty((self.frame_height, self.frame_width), dtype=object)
+        tri_nv = triangles[-1]
+        # Go through all the triangles of the novel view in a descending depth order
+        for tri_idx in sorting_idx:
+            rgb = np.random.rand(3,)*255
+
+            t_v = tri_nv.simplices[tri_idx]
+            vertices_v = np.array([tri_nv.points[t_v[0]], tri_nv.points[t_v[1]], tri_nv.points[t_v[2]]])
+            # vertices_ref_v = np.array([ref_triangles[-1].points[ref_triangles[-1].simplices[0][0]], 
+            #                             ref_triangles[-1].points[ref_triangles[-1].simplices[0][1]],
+            #                             ref_triangles[-1].points[ref_triangles[-1].simplices[0][2]]])     
+            # b_ref = ref_triangles[-1].transform[0,:2].dot(np.transpose(vertices_v[0] - ref_triangles[-1].transform[0,2]))
+            # b_coord_ref = [b_ref[0], b_ref[1], 1 - b_ref.sum(axis=0)]
+
+            # Compare depth of the corresponding triangles from inputs and select the one with closest depth
+            tri_depth = np.array([triangles_depth[i][tri_idx] for i in range(len(triangles_depth)-1)])
+            view_closest = (np.abs(tri_depth - triangles_depth[-1][tri_idx])).argmin()
+            view_front = tri_depth.argmin()
+
+            min_u = max(0, int(vertices_v[:,0].min()))
+            max_u = min(self.frame_width, int(vertices_v[:,0].max()))
+            min_v = max(0, int(vertices_v[:,1].min()))
+            max_v = min(self.frame_height, int(vertices_v[:,1].max()))
+            for u in range(min_u, max_u+1):
+                for v in range(min_v, max_v+1):
+                    # Compute barycentric coordinates
+                    px_b = tri_nv.transform[tri_idx,:2].dot(np.transpose((u,v) - tri_nv.transform[tri_idx,2]))
+                    px_b_coord = [px_b[0], px_b[1], 1 - px_b.sum(axis=0)]
+                    if all(n>=0 for n in px_b_coord): # The pixel (u,v) is within the currently processed triangle
+                        # Get the position of point r in ref view (r is the intersection between the reference triangle and
+                        # the ray passing through the mapped point from the current triangle)
+                        # NOTE: use the ref_triangles[-1] to get barycentric coordinates of r
+                        r_b = ref_triangles[-1].transform[0,:2].dot(np.transpose((u,v) - ref_triangles[-1].transform[0,2]))
+                        r_b_coord = [r_b[0], r_b[1], 1 - r_b.sum(axis=0)]
+                        # for view in range(len(triangles) - 1):
+                        for view in [view_closest]:
+                            # Get corresponding triangle in processed input view
+                            t_i = t_v
+                            # cor_idx = np.where((triangles[view].simplices == t_v).all(axis=1))[0]
+                            # if cor_idx: 
+                            #     cor_idx = cor_idx[0]
+                            #     t_i = triangles[view].simplices[cor_idx]
+                            vertices_i = np.array([triangles[view].points[t_i[0]], triangles[view].points[t_i[1]], triangles[view].points[t_i[2]]])
+                            vertices_ref_i = np.array([ref_triangles[view].points[ref_triangles[view].simplices[0][0]], 
+                                                    ref_triangles[view].points[ref_triangles[view].simplices[0][1]],
+                                                    ref_triangles[view].points[ref_triangles[view].simplices[0][2]]])
+                            # Find from which pixel the current (u,v) might have been projected
+                            px_back_proj = tuple(np.matmul(vertices_i.transpose(), px_b_coord))
+                            # Compute the 'depth' value (aka pr_bar)
+                            r_back_proj = tuple(np.matmul(vertices_ref_i.transpose(), r_b_coord).round().astype('int'))
+
+                            pr = (r_back_proj[0]-px_back_proj[0], r_back_proj[1]-px_back_proj[1])
+                            dist_pr = np.linalg.norm(pr, ord=2)
+          
+                            # if u%25==0 and v%25==0: #1.0 in px_b_coord:
+                            #     if view == 0:
+                            #         frame = cv2.circle(frame, (round(px_back_proj[0]), round(px_back_proj[1])), 2, (0,0,255), -1)
+                            #     if view == 1:
+                            #         frame = cv2.circle(frame, (round(px_back_proj[0]), round(px_back_proj[1])), 2, (0,255,0), -1)
+                            #     # if view == 2:
+                            #     #     frame = cv2.circle(frame, (round(px_back_proj[0]), round(px_back_proj[1])), 2, (0,155,155), -1)
+                            #     frame = cv2.circle(frame, r_back_proj, 2, (255,0,0), -1)
+                            #     frame = cv2.line(frame, (round(px_back_proj[0]), round(px_back_proj[1])), r_back_proj, rgb, 1)
+
+                            # NOTE: maybe here we could store the sub_pixel position in input view
+                            # to do a weigthed RGB mapping from the 4 neighbors pixels or bilinear interpolation
+                            if projected_pixels[v,u] == None or projected_pixels[v,u].depth > dist_pr:
+                                # tmp = projected_pixels[v,u].pixel
+                                # frame = cv2.circle(frame, tmp, 2, (0,255,0), -1)
+                                # frame = cv2.circle(frame, px_back_proj, 2, (0,0,255), -1)
+                                # frame = cv2.circle(frame, r_back_proj, 2, (255,0,0), -1)
+                                # frame = cv2.line(frame, px_back_proj, r_back_proj, rgb, 1)
+                                # frame = cv2.line(frame, tmp, r_back_proj, rgb, 1)
+                                projected_pixels[v,u] = ProjectedPixel(px_back_proj, view, dist_pr)
+
+        # fig = plt.figure("Epipolar lines")
+        # plt.imshow(frame)
+        # plt.show()
+
+        return projected_pixels
+
+    def map_inputs_to_novel_view(self, rgb_cams, projected_pixels):
+        new_img = np.zeros([self.frame_height, self.frame_width, 3], dtype=np.uint8)
+
+        for v in range(self.frame_height):
+            for u in range(self.frame_width):
+                proj_px = projected_pixels[v][u]
+                if proj_px != None:
+                    proj_u = round(proj_px.pixel[0], 3)
+                    low_u = int(math.floor(proj_u))
+                    ratio_u = 1 - (proj_u - low_u)
+                    proj_v = round(proj_px.pixel[1], 3)
+                    low_v = int(math.floor(proj_v))
+                    ratio_v = 1 - (proj_v - low_v)
+                    rgb_cam = rgb_cams[proj_px.view]
+                    # new_img[v][u] = rgb_cams[proj_px.view][proj_px.pixel[::-1]]
+                    if low_u == self.frame_width - 1:
+                        if low_v == self.frame_height - 1:
+                            new_img[v][u] = rgb_cam[low_v][low_u]
+                        else:
+                            new_img[v][u] = ratio_v * rgb_cam[low_v][low_u] + (1-ratio_v) * rgb_cam[low_v+1][low_u]
+                    else:
+                        if low_v == self.frame_height - 1:
+                            new_img[v][u] = ratio_u * rgb_cam[low_v][low_u] + (1-ratio_u) * rgb_cam[low_v][low_u+1]
+                        else:
+                            new_img[v][u] = ratio_u * ratio_v * rgb_cam[low_v][low_u] \
+                                            + (1-ratio_u) * ratio_v * rgb_cam[low_v][low_u+1] \
+                                            + ratio_u * (1-ratio_v) * rgb_cam[low_v+1][low_u] \
+                                            + (1-ratio_u) * (1-ratio_v) * rgb_cam[low_v+1][low_u+1]
+                else:
+                    pass #Complete black pixels by averaging neighborhood?
+
+        return new_img               
+
+
+    """--------------------------------------------"""
+    """
+    def find_pixel_correspondences_full_triangles(self, triangles, pts, new_pts, d_pts, new_d_pts):
+        # Get for each pixels in the novel view, the list of the pixels from the input views that are correspondent
+
+        sorting_idx = self.triangles_z_buffering(triangles[-1], new_d_pts)
+
+        projected_pixels = np.empty((self.frame_height, self.frame_width), dtype=object)
+        tri_nv = triangles[-1]
+        # Go through all the triangles of the novel view in a descending depth order
+        for tri_idx in sorting_idx:
+            t_v = tri_nv[tri_idx]
+            vertices_v = np.array([new_pts[t_v[0]], new_pts[t_v[1]], new_pts[t_v[2]]])
+            min_u = int(vertices_v[:,0].min())
+            max_u = int(vertices_v[:,0].max())
+            min_v = int(vertices_v[:,1].min())
+            max_v = int(vertices_v[:,1].max())
+            for u in range(min_u, max_u+1):
+                for v in range(min_v, max_v+1):
+                    # Compute barycentric coordinates
+                    b_coord = tools.get_barycentric_coordinates(vertices_v[0], vertices_v[1], vertices_v[2], (u,v))
+                    if all(n>=0 for n in b_coord): # The pixel (u,v) is within the currently processed triangle
+                        for view in range(len(triangles) - 1):
+                            # Get corresponding triangle in processed input view
+                            cor_idx = [i for i, t in enumerate(triangles[view]) if t == t_v]
+                            if cor_idx: 
+                                cor_idx = cor_idx[0]
+                                t_i = triangles[view][cor_idx]
+                                vertices_i = np.array([pts[view][t_i[0]], pts[view][t_i[1]], pts[view][t_i[2]]])
+                                # vertices_ref = np.array([ref_triangles[view].points[ref_triangles[view].simplices[0][0]], 
+                                #                         ref_triangles[view].points[ref_triangles[view].simplices[0][1]],
+                                #                         ref_triangles[view].points[ref_triangles[view].simplices[0][2]]])
+                                # Find from which pixel the current (u,v) might have been projected
+                                px_back_proj = tuple(np.matmul(vertices_i.transpose(), b_coord).round().astype('int'))
+                                projected_pixels[v,u] = ProjectedPixel(px_back_proj, view, 0)
+
+        return projected_pixels"""      
+
     """
     def find_pixel_correspondences(self, triangles, ref_triangles, sorting_order):
         # Get for each pixels in the novel view, the list of the pixels from the input views that are correspondent
@@ -239,170 +381,5 @@ class TextureMapping():
                                     projected_pixels[proj_px[::-1]] = ProjectedPixel(proj_px, view, depth)
 
         return projected_pixels"""
-
-    def find_pixel_correspondences_bis(self, triangles, ref_triangles, d_pts, new_d_pts):
-        # Get for each pixels in the novel view, the list of the pixels from the input views that are correspondent
-        # This time find for each pixels in the novel view, which point are projected here in input views
-
-        sorting_idx = self.triangles_z_buffering(triangles[-1], new_d_pts)
-        triangles_depth = self.get_triangles_depth(triangles[-1], d_pts, new_d_pts)
-
-        frame = 255 * np.ones([self.frame_height, self.frame_width, 3], dtype=np.uint8)
-
-        projected_pixels = np.empty((self.frame_height, self.frame_width), dtype=object)
-        tri_nv = triangles[-1]
-        # Go through all the triangles of the novel view in a descending depth order
-        for tri_idx in sorting_idx:
-            rgb = np.random.rand(3,)*255
-
-            t_v = tri_nv.simplices[tri_idx]
-            vertices_v = np.array([tri_nv.points[t_v[0]], tri_nv.points[t_v[1]], tri_nv.points[t_v[2]]])
-            vertices_ref_v = np.array([ref_triangles[-1].points[ref_triangles[-1].simplices[0][0]], 
-                                        ref_triangles[-1].points[ref_triangles[-1].simplices[0][1]],
-                                        ref_triangles[-1].points[ref_triangles[-1].simplices[0][2]]])     
-            b_ref = ref_triangles[-1].transform[0,:2].dot(np.transpose(vertices_v[0] - ref_triangles[-1].transform[0,2]))
-            b_coord_ref = [b_ref[0], b_ref[1], 1 - b_ref.sum(axis=0)]
-
-            # Compare depth of the corresponding triangles from inputs and select the one with closest depth
-            tri_depth = np.array([triangles_depth[i][tri_idx] for i in range(len(triangles_depth)-1)])
-            view_closest = (np.abs(tri_depth - triangles_depth[-1][tri_idx])).argmin()
-            view_front = tri_depth.argmin()
-
-            min_u = max(0, int(vertices_v[:,0].min()))
-            max_u = min(self.frame_width, int(vertices_v[:,0].max()))
-            min_v = max(0, int(vertices_v[:,1].min()))
-            max_v = min(self.frame_height, int(vertices_v[:,1].max()))
-            for u in range(min_u, max_u+1):
-                for v in range(min_v, max_v+1):
-                    # Compute barycentric coordinates
-                    px_b = tri_nv.transform[tri_idx,:2].dot(np.transpose((u,v) - tri_nv.transform[tri_idx,2]))
-                    px_b_coord = [px_b[0], px_b[1], 1 - px_b.sum(axis=0)]
-                    if all(n>=0 for n in px_b_coord): # The pixel (u,v) is within the currently processed triangle
-                        # Get the position of point r in ref view (r is the intersection between the reference triangle and
-                        # the ray passing through the mapped point from the current triangle)
-                        # NOTE: use the ref_triangles[-1] to get barycentric coordinates of r
-                        r_b = ref_triangles[-1].transform[0,:2].dot(np.transpose((u,v) - ref_triangles[-1].transform[0,2]))
-                        r_b_coord = [r_b[0], r_b[1], 1 - r_b.sum(axis=0)]
-                        # for view in range(len(triangles) - 1):
-                        for view in [view_closest]:
-                            # Get corresponding triangle in processed input view
-                            t_i = t_v
-                            # cor_idx = np.where((triangles[view].simplices == t_v).all(axis=1))[0]
-                            # if cor_idx: 
-                            #     cor_idx = cor_idx[0]
-                            #     t_i = triangles[view].simplices[cor_idx]
-                            vertices_i = np.array([triangles[view].points[t_i[0]], triangles[view].points[t_i[1]], triangles[view].points[t_i[2]]])
-                            vertices_ref_i = np.array([ref_triangles[view].points[ref_triangles[view].simplices[0][0]], 
-                                                    ref_triangles[view].points[ref_triangles[view].simplices[0][1]],
-                                                    ref_triangles[view].points[ref_triangles[view].simplices[0][2]]])
-                            # Find from which pixel the current (u,v) might have been projected
-                            px_back_proj = tuple(np.matmul(vertices_i.transpose(), px_b_coord))
-                            # Compute the 'depth' value (aka pr_bar)
-                            r_back_proj = tuple(np.matmul(vertices_ref_i.transpose(), r_b_coord).round().astype('int'))
-
-                            pr = (r_back_proj[0]-px_back_proj[0], r_back_proj[1]-px_back_proj[1])
-                            dist_pr = np.linalg.norm(pr, ord=2)
-          
-                            # if u%25==0 and v%25==0: #1.0 in px_b_coord:
-                            #     if view == 0:
-                            #         frame = cv2.circle(frame, (round(px_back_proj[0]), round(px_back_proj[1])), 2, (0,0,255), -1)
-                            #     if view == 1:
-                            #         frame = cv2.circle(frame, (round(px_back_proj[0]), round(px_back_proj[1])), 2, (0,255,0), -1)
-                            #     # if view == 2:
-                            #     #     frame = cv2.circle(frame, (round(px_back_proj[0]), round(px_back_proj[1])), 2, (0,155,155), -1)
-                            #     frame = cv2.circle(frame, r_back_proj, 2, (255,0,0), -1)
-                            #     frame = cv2.line(frame, (round(px_back_proj[0]), round(px_back_proj[1])), r_back_proj, rgb, 1)
-
-                            # NOTE: maybe here we could store the sub_pixel position in input view
-                            # to do a weigthed RGB mapping from the 4 neighbors pixels or bilinear interpolation
-                            if projected_pixels[v,u] == None or projected_pixels[v,u].depth > dist_pr:
-                                # tmp = projected_pixels[v,u].pixel
-                                # frame = cv2.circle(frame, tmp, 2, (0,255,0), -1)
-                                # frame = cv2.circle(frame, px_back_proj, 2, (0,0,255), -1)
-                                # frame = cv2.circle(frame, r_back_proj, 2, (255,0,0), -1)
-                                # frame = cv2.line(frame, px_back_proj, r_back_proj, rgb, 1)
-                                # frame = cv2.line(frame, tmp, r_back_proj, rgb, 1)
-                                projected_pixels[v,u] = ProjectedPixel(px_back_proj, view, dist_pr)
-
-        # fig = plt.figure("Epipolar lines")
-        # plt.imshow(frame)
-        # plt.show()
-
-        return projected_pixels
-
-
-    """--------------------------------------------"""
-    """
-    def find_pixel_correspondences_full_triangles(self, triangles, pts, new_pts, d_pts, new_d_pts):
-        # Get for each pixels in the novel view, the list of the pixels from the input views that are correspondent
-
-        sorting_idx = self.triangles_z_buffering(triangles[-1], new_d_pts)
-
-        projected_pixels = np.empty((self.frame_height, self.frame_width), dtype=object)
-        tri_nv = triangles[-1]
-        # Go through all the triangles of the novel view in a descending depth order
-        for tri_idx in sorting_idx:
-            t_v = tri_nv[tri_idx]
-            vertices_v = np.array([new_pts[t_v[0]], new_pts[t_v[1]], new_pts[t_v[2]]])
-            min_u = int(vertices_v[:,0].min())
-            max_u = int(vertices_v[:,0].max())
-            min_v = int(vertices_v[:,1].min())
-            max_v = int(vertices_v[:,1].max())
-            for u in range(min_u, max_u+1):
-                for v in range(min_v, max_v+1):
-                    # Compute barycentric coordinates
-                    b_coord = tools.get_barycentric_coordinates(vertices_v[0], vertices_v[1], vertices_v[2], (u,v))
-                    if all(n>=0 for n in b_coord): # The pixel (u,v) is within the currently processed triangle
-                        for view in range(len(triangles) - 1):
-                            # Get corresponding triangle in processed input view
-                            cor_idx = [i for i, t in enumerate(triangles[view]) if t == t_v]
-                            if cor_idx: 
-                                cor_idx = cor_idx[0]
-                                t_i = triangles[view][cor_idx]
-                                vertices_i = np.array([pts[view][t_i[0]], pts[view][t_i[1]], pts[view][t_i[2]]])
-                                # vertices_ref = np.array([ref_triangles[view].points[ref_triangles[view].simplices[0][0]], 
-                                #                         ref_triangles[view].points[ref_triangles[view].simplices[0][1]],
-                                #                         ref_triangles[view].points[ref_triangles[view].simplices[0][2]]])
-                                # Find from which pixel the current (u,v) might have been projected
-                                px_back_proj = tuple(np.matmul(vertices_i.transpose(), b_coord).round().astype('int'))
-                                projected_pixels[v,u] = ProjectedPixel(px_back_proj, view, 0)
-
-        return projected_pixels"""
-
-    def map_inputs_to_novel_view(self, rgb_cams, projected_pixels):
-        new_img = np.zeros([self.frame_height, self.frame_width, 3], dtype=np.uint8)
-
-        for v in range(self.frame_height):
-            for u in range(self.frame_width):
-                proj_px = projected_pixels[v][u]
-                if proj_px != None:
-                    proj_u = round(proj_px.pixel[0], 3)
-                    low_u = int(math.floor(proj_u))
-                    ratio_u = 1 - (proj_u - low_u)
-                    proj_v = round(proj_px.pixel[1], 3)
-                    low_v = int(math.floor(proj_v))
-                    ratio_v = 1 - (proj_v - low_v)
-                    rgb_cam = rgb_cams[proj_px.view]
-                    # new_img[v][u] = rgb_cams[proj_px.view][proj_px.pixel[::-1]]
-                    if low_u == self.frame_width - 1:
-                        if low_v == self.frame_height - 1:
-                            new_img[v][u] = rgb_cam[low_v][low_u]
-                        else:
-                            new_img[v][u] = ratio_v * rgb_cam[low_v][low_u] + (1-ratio_v) * rgb_cam[low_v+1][low_u]
-                    else:
-                        if low_v == self.frame_height - 1:
-                            new_img[v][u] = ratio_u * rgb_cam[low_v][low_u] + (1-ratio_u) * rgb_cam[low_v][low_u+1]
-                        else:
-                            new_img[v][u] = ratio_u * ratio_v * rgb_cam[low_v][low_u] \
-                                            + (1-ratio_u) * ratio_v * rgb_cam[low_v][low_u+1] \
-                                            + ratio_u * (1-ratio_v) * rgb_cam[low_v+1][low_u] \
-                                            + (1-ratio_u) * (1-ratio_v) * rgb_cam[low_v+1][low_u+1]
-                else:
-                    pass #Complete black pixels by averaging neighborhood?
-
-        return new_img               
-                                
-
-
 
     

@@ -23,7 +23,7 @@ def plot_matched_features(rgb_cams, pts, q0, q1, q2, name="Matched features"):
     rgb_cams_cp = copy.deepcopy(rgb_cams)
     for idx in range(len(pts[0])):
         rgb = np.random.rand(3,)*255
-        for i in range(len(rgb_cams)):
+        for i in range(1,len(rgb_cams)):
             c = (round(pts[i][idx][0]), round(pts[i][idx][1]))
             rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], c, rad, rgb, -1)
             if idx == 0:
@@ -35,8 +35,8 @@ def plot_matched_features(rgb_cams, pts, q0, q1, q2, name="Matched features"):
                 rgb_cams_cp[i] = cv2.circle(rgb_cams_cp[i], c2, rad, (255,0,0), -1)
 
     fig = plt.figure(name)
-    for i in range(len(rgb_cams_cp)):
-        ax = fig.add_subplot((len(rgb_cams_cp)+2)//3, 3, i+1)
+    for i in range(1,len(rgb_cams_cp)):
+        ax = fig.add_subplot((len(rgb_cams_cp)+1)//2, 2, i)
         imgplot = plt.imshow(rgb_cams_cp[i])
         ax.set_title('Cam{}'.format(i))
 
@@ -52,12 +52,12 @@ def plot_point_placement_results(rgb_frame, pts, pts_gt, frame_height, frame_wid
         if idx < len(pts_gt)-7:
             rgb = np.random.rand(3,)*255
             c = (round(pts_gt[idx][0]), round(pts_gt[idx][1]))
-            frame = cv2.circle(rgb_frame, c, 4, rgb, -1)
-            virtual_img = cv2.circle(virtual_img, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 3, rgb, -1)
-            frame = cv2.circle(rgb_frame, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 2, rgb-40, -1)
+            frame = cv2.circle(frame, c, 4, rgb, -1)
+            virtual_img = cv2.circle(virtual_img, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 2, rgb, -1)
+            frame = cv2.circle(frame, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 1, rgb-40, -1)
         else: #Plot the ref points
             virtual_img = cv2.circle(virtual_img, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 3, (255,0,0), -1)
-            frame = cv2.circle(rgb_frame, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 3, (255,0,0), -1)
+            frame = cv2.circle(frame, (int(round(pts[idx][0])),int(round(pts[idx][1]))), 3, (255,0,0), -1)
 
 
     fig = plt.figure("Result")

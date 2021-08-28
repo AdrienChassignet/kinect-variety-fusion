@@ -55,9 +55,9 @@ def get_neighborhood(u, v, radius, img):
     neighborhood = np.zeros((2*radius+1, 2*radius+1))
 
     for i in range(-radius, radius+1):
-        if v+i >= 0 or v+i < height:
+        if v+i >= 0 and v+i < height:
             for j in range(-radius, radius+1):
-                if u+j >= 0 or u+j < width:
+                if u+j >= 0 and u+j < width:
                     neighborhood[i+radius, j+radius] = img[v+i, u+j]
 
     return neighborhood

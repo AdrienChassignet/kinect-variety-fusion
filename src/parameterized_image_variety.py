@@ -134,7 +134,6 @@ class ParameterizedImageVariety():
             qv = self.pts[self.virtual_view][pt_idx]
             
             (uv, vv) = qv
-            # expected = np.array([uv, vv, self.d_pts[self.virtual_view][pt_idx], 1, 1])
             expected = np.array([uv, vv, self.d_pts[self.virtual_view][pt_idx]])
             
             # Start the search from a close position in a reference view
@@ -142,9 +141,7 @@ class ParameterizedImageVariety():
             while ref_view == self.virtual_view or self.pts[ref_view][pt_idx] == []:
                 ref_view += 1
 
-            # x0 = np.array([self.pts[ref_view][pt_idx][0], self.pts[ref_view][pt_idx][1], self.d_pts[ref_view][pt_idx], 1, 1])
             x0 = np.array([self.pts[ref_view][pt_idx][0], self.pts[ref_view][pt_idx][1], self.d_pts[ref_view][pt_idx]])
-            # x0 = expected
             # print("Initialization [u, v, g1, g2, g3] = ", x0)
 
             cst = [q0v[0],q0v[1],q1v[0],q1v[1],q2v[0],q2v[1],self.struct_coeffs[pt_idx], d0v, d1v, d2v]
@@ -154,7 +151,6 @@ class ParameterizedImageVariety():
             # Minimize sum of squares to solve the system
 
             # Define bounds of the solution space
-            # b = [[0,0,0,-np.inf,-np.inf], [1,1,2,np.inf,np.inf]]
             b = [[0,0,0], [1,1,2]]
 
             # Convert bounds into constraints
@@ -184,8 +180,6 @@ class ParameterizedImageVariety():
                 try: # Check if the new point project on the same coordinates as a previous one
                     occlusion = virtual_pts.index((u,v))
                     if virtual_d_pts[occlusion] > d: # If the new point is closer to the image plane replace the occluded one
-                        # del virtual_pts[occlusion]
-                        # del virtual_d_pts[occlusion]
                         occluded_idx.append(occlusion)
                     else:
                         occluded_idx.append(pt_idx)
@@ -201,10 +195,6 @@ class ParameterizedImageVariety():
                     error_u = np.append(error_u, (uv-res['x'][0])*self.frame_width)
                     error_v = np.append(error_v, (vv-res['x'][1])*self.frame_width)
                     results.append(res['x'])
-                #     print("Expected result: ", expected)
-                #     print("Solution found: ", res["x"], " / residual being: ", res["fun"])
-                #     print("Error px: ", error_img_pos[-1])
-                #     print('--------------------------------------------------') 
 
         if self.debug:
             print(len(virtual_pts), " matched points")
@@ -231,11 +221,10 @@ class ParameterizedImageVariety():
         """
         Define the system of equations in factorized form.
         cst = [u0, v0, u1, v1, u2, v2, coeffs, d0, d1, d2]
-        x = [u, v, d3, 1, 1]
+        x = [u, v, d3]
         """
         # Here only coeffs from the cst list is changing in each call of this method => it could be optimized by avoiding recomputing for the fixed parameters
         [u0, v0, u1, v1, u2, v2, coeffs, d0, d1, d2] = cst
-        # [u, v, d3, _, _] = x
         [u,v,d3] = x
         a = d1*u1 - d0*u0
         b = d2*u2 - d0*u0
@@ -266,6 +255,6 @@ class ParameterizedImageVariety():
         """
         Return the sum of squares of the system of equations.
         cst = [u0, v0, u1, v1, u2, v2, coeffs, d0, d1, d2]
-        x = [u, v, d3, 1, 1]
+        x = [u, v, d3]
         """
         return 0.5*np.sum(self.F(x,cst)**2)
